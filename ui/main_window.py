@@ -173,6 +173,7 @@ class ZFN_GUI(QMainWindow):
         self.grabber_account_list = QListWidget()
         self.grabber_account_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.grabber_account_list.setToolTip("请先在主页登录账户，这里才会显示可选项\n按住Ctrl可多选，按住Shift可连续选择")
+        self.grabber_account_list.itemSelectionChanged.connect(self.load_wishlist_to_ui)
         account_selection_layout.addWidget(self.grabber_account_list)
         top_container_layout.addWidget(account_selection_group, 1)
         params_group = QWidget()
@@ -593,27 +594,13 @@ class ZFN_GUI(QMainWindow):
         self.start_grab_button.setEnabled(True)
 
     def start_priority_grabbing(self):
-        """
-        【全新逻辑】为每个选中的账户，使用其专属志愿列表，并发启动抢课任务。
-        """
-        if not hasattr(self, 'grabber_account_list') or not self.grabber_account_list:
-            QMessageBox.critical(self, "程序错误", "抢课账户列表控件未被正确初始化！")
-            return
-            
+        """【已修复】为每个选中的账户，使用其专属志愿列表和目标数，并发启动抢课任务。"""
         selected_account_items = self.grabber_account_list.selectedItems()
         if not selected_account_items:
             return QMessageBox.warning(self, "提示", "请选择至少一个要用于抢课的账户。")
 
         selected_sids = [item.text() for item in selected_account_items]
-        target_count = self.grab_target_count_input.value()
         
-        # 检查所有选中的账户是否都有已保存的志愿列表
-        sids_with_missing_wishlist = [sid for sid in selected_sids if sid not in self.wishlists]
-        if sids_with_missing_wishlist:
-            return QMessageBox.warning(self, "缺少志愿", 
-                                       f"以下账户没有找到已保存的志愿列表，请先为他们选择课程并点击【保存选中志愿】:\n\n"
-                                       f"{', '.join(sids_with_missing_wishlist)}")
-
         self.start_grab_button.setEnabled(False)
         self.stop_grab_button.setEnabled(True)
         self.grab_log_display.append("\n" + "="*15 + " 开始多账户并发抢课任务 " + "="*15)
@@ -628,15 +615,27 @@ class ZFN_GUI(QMainWindow):
                 self.log_to_grabber(f"学号 [{sid}] 已有抢课任务在运行，跳过。")
                 continue
 
-            # 获取该学生专属的志愿列表
-            prioritized_courses = self.wishlists.get(sid, [])
-            if not prioritized_courses:
-                 self.log_to_grabber(f"⚠️ 警告：学号 [{sid}] 的志愿列表为空，跳过。")
+            wishlist_data = self.wishlists.get(sid)
+            if not wishlist_data:
+                 self.log_to_grabber(f"❌ 学号 [{sid}] 没有找到志愿列表，跳过。请先保存志愿。")
                  continue
             
+            target_count = 1
+            prioritized_courses = []
+
+            # 【关键修复】再次检查数据格式
+            if isinstance(wishlist_data, dict):
+                target_count = wishlist_data.get("target_count", 1)
+                prioritized_courses = wishlist_data.get("courses", [])
+            elif isinstance(wishlist_data, list):
+                prioritized_courses = wishlist_data
+            
+            if not prioritized_courses:
+                self.log_to_grabber(f"❌ 学号 [{sid}] 的志愿列表为空，跳过。")
+                continue
+
             self.log_to_grabber(f"➡️ 为学号 [{sid}] 分配抢课任务，目标：{target_count}门，志愿数：{len(prioritized_courses)}门")
             
-            # 为每个账户创建一个独立的抢课线程
             grabber = PriorityBatchGrabber(api_client, sid, prioritized_courses, target_count)
             grabber.status_update.connect(self.update_grab_log)
             grabber.finished.connect(self.on_grab_finished)
@@ -671,7 +670,7 @@ class ZFN_GUI(QMainWindow):
         self.log_to_grabber(f"已加载 {len(self.wishlists)} 个账户的已存志愿。")
 
     def save_wishlist_for_selected(self):
-        """为当前选中的账户保存界面上的志愿列表。"""
+        """【已更新】为当前选中的账户保存界面上的志愿列表和目标抢课数。"""
         selected_account_items = self.grabber_account_list.selectedItems()
         if not selected_account_items:
             return QMessageBox.warning(self, "提示", "请在左侧选择至少一个要保存志愿的账户。")
@@ -684,7 +683,7 @@ class ZFN_GUI(QMainWindow):
         
         wishlist_courses = []
         for row in sorted_rows:
-            # 使用课程的唯一标识（如 do_id）来查找完整的课程信息
+            # 使用课程的唯一标识来查找完整的课程信息
             title_text = self.courses_table.item(row, 1).text()
             teacher_text = self.courses_table.item(row, 2).text()
             matching_course = next((c for c in self.current_selectable_courses.values() if c.get('title') == title_text and c.get('teacher') == teacher_text), None)
@@ -694,50 +693,77 @@ class ZFN_GUI(QMainWindow):
         if not wishlist_courses:
             return QMessageBox.warning(self, "错误", "未能从界面获取有效的课程数据。")
         
+        target_count = self.grab_target_count_input.value() # 获取目标数量
         sids_to_save = [item.text() for item in selected_account_items]
-        for sid in sids_to_save:
-            self.wishlists[sid] = wishlist_courses
         
-        save_wishlists(self.wishlists)
-        self.log_to_grabber(f"已为账户 {', '.join(sids_to_save)} 保存了 {len(wishlist_courses)} 门志愿课程。")
+        for sid in sids_to_save:
+            # 创建新的数据结构
+            self.wishlists[sid] = {
+                "target_count": target_count,
+                "courses": wishlist_courses
+            }
+        
+        save_wishlists(self.wishlists) # 使用 core/config.py 中的函数保存
+        self.log_to_grabber(f"已为账户 {', '.join(sids_to_save)} 保存了 {len(wishlist_courses)} 门志愿(目标 {target_count} 门)。")
         QMessageBox.information(self, "成功", f"已为账户 {', '.join(sids_to_save)} 成功保存志愿列表！")
 
 
     def load_wishlist_to_ui(self):
-        """加载选中账户的志愿列表到UI表格中进行展示和勾选。"""
+        """【已修复】当选择账户时，自动加载其志愿和目标数到UI，兼容新旧数据格式。"""
         selected_account_items = self.grabber_account_list.selectedItems()
-        if not selected_account_items:
-            return QMessageBox.warning(self, "提示", "请在左侧选择一个账户以加载其志愿。")
-        
-        sid_to_load = selected_account_items[0].text()
-        wishlist = self.wishlists.get(sid_to_load)
-
-        if not wishlist:
-            return QMessageBox.information(self, "提示", f"账户 {sid_to_load} 还没有保存过志愿列表。")
-
-        # 为了能够勾选，首先确保这些志愿在当前可选课程列表中存在
-        current_course_keys = set(self.current_selectable_courses.keys())
-        wishlist_keys = {c.get('do_id') or c.get('class_id') for c in wishlist}
-        
-        if not wishlist_keys.issubset(current_course_keys):
-            QMessageBox.warning(self, "注意", "加载的志愿列表包含当前不可选的课程，将只高亮显示当前可选的课程。")
-
+        # 清空旧的勾选和重置目标数为默认值
         self.courses_table.clearSelection()
+        self.grab_target_count_input.setValue(1)
+
+        if not selected_account_items:
+            return
         
+        # 只加载第一个选中账户的配置到UI
+        sid_to_load = selected_account_items[0].text()
+        wishlist_data = self.wishlists.get(sid_to_load)
+
+        if not wishlist_data:
+            self.log_to_grabber(f"账户 {sid_to_load} 尚无已保存的志愿。")
+            return
+
+        target_count = 1
+        wishlist_courses = []
+        
+        # 【关键修复】检查wishlist_data是新格式(dict)还是旧格式(list)
+        if isinstance(wishlist_data, dict):
+            # 是新格式，正常读取
+            target_count = wishlist_data.get("target_count", 1)
+            wishlist_courses = wishlist_data.get("courses", [])
+        elif isinstance(wishlist_data, list):
+            # 是旧格式，只读取课程列表
+            self.log_to_grabber(f"检测到账户 {sid_to_load} 的志愿为旧格式，将为您加载。建议重新保存一次以更新格式。")
+            wishlist_courses = wishlist_data
+        else:
+            self.log_to_grabber(f"❌ 账户 {sid_to_load} 的志愿格式不正确，无法加载。")
+            return
+
+        # 加载目标抢课数和志愿列表到UI
+        self.grab_target_count_input.setValue(target_count)
+        if not wishlist_courses:
+            return
+            
         loaded_count = 0
         for row in range(self.courses_table.rowCount()):
             title_text = self.courses_table.item(row, 1).text()
             teacher_text = self.courses_table.item(row, 2).text()
-            # 找到UI表格中课程对应的完整数据
             course_in_table = next((c for c in self.current_selectable_courses.values() if c.get('title') == title_text and c.get('teacher') == teacher_text), None)
+            
             if course_in_table:
-                # 检查这个课程是否在志愿列表中
-                key = course_in_table.get('do_id') or course_in_table.get('class_id')
-                if key in wishlist_keys:
+                # 检查课程是否在志愿列表中
+                is_in_wishlist = any(
+                    (c.get('do_id') or c.get('class_id')) == (course_in_table.get('do_id') or course_in_table.get('class_id')) 
+                    for c in wishlist_courses
+                )
+                if is_in_wishlist:
                     self.courses_table.selectRow(row)
                     loaded_count += 1
         
-        self.log_to_grabber(f"已为账户 {sid_to_load} 从本地加载并选中了 {loaded_count} 门志愿课程。")
+        self.log_to_grabber(f"已为账户 {sid_to_load} 加载了 {loaded_count} 门志愿和目标数 {target_count}。")
 
     def log_to_grabber(self, message):
         """一个简单的日志记录函数"""
