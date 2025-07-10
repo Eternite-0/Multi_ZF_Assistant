@@ -748,6 +748,8 @@ class ZFN_GUI(QMainWindow):
             return
             
         loaded_count = 0
+        total_wishlist_count = len(wishlist_courses)
+
         for row in range(self.courses_table.rowCount()):
             title_text = self.courses_table.item(row, 1).text()
             teacher_text = self.courses_table.item(row, 2).text()
@@ -763,7 +765,11 @@ class ZFN_GUI(QMainWindow):
                     self.courses_table.selectRow(row)
                     loaded_count += 1
         
-        self.log_to_grabber(f"已为账户 {sid_to_load} 加载了 {loaded_count} 门志愿和目标数 {target_count}。")
+        self.log_to_grabber(
+    f"为账户 {sid_to_load} 加载志愿: "
+    f"志愿列表共 {total_wishlist_count} 门, "
+    f"目标抢课数: {target_count}。"
+)
 
     def log_to_grabber(self, message):
         """一个简单的日志记录函数"""
