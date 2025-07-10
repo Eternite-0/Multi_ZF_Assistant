@@ -1,109 +1,146 @@
-# mock_server.py (V4 - 终极版，支持公钥加密流程)
+# mock_server.py (V17 - 最终性能优化版)
 import http.server
 import socketserver
 import json
 import time
-from urllib.parse import parse_qs, urlparse
+import base64
+import os
+from urllib.parse import parse_qs
+
+# 确保 pycryptodome 库已安装 (pip install pycryptodome)
+try:
+    from Crypto.PublicKey import RSA
+    from Crypto.Util.number import long_to_bytes
+except ImportError:
+    print("错误：未找到 pycryptodome 库。")
+    print("请先通过命令 'pip install pycryptodome' 进行安装。")
+    exit()
 
 PORT = 9999
+KEY_FILE = "mock_key.json"
 
-# --- 模拟的数据库 (不变) ---
-mock_courses_db = {
-    "jxb_id_01": { "kcmc": "【模拟】计算机网络", "kch_id": "COURSE_ID_001", "jxb_ids": "jxb_id_01", "jsxx": "张三", "kklxdm": "10", "xkkz_id": "xyz-123", "capacity": 2 },
-    "jxb_id_02": { "kcmc": "【模拟】操作系统", "kch_id": "COURSE_ID_002", "jxb_ids": "jxb_id_02", "jsxx": "李四", "kklxdm": "10", "xkkz_id": "xyz-123", "capacity": 1 },
-    "jxb_id_03": { "kcmc": "【模拟】数据结构", "kch_id": "COURSE_ID_003", "jxb_ids": "jxb_id_03", "jsxx": "王五", "kklxdm": "10", "xkkz_id": "xyz-123", "capacity": 0 },
-    "jxb_id_04": { "kcmc": "【模拟】篮球", "kch_id": "COURSE_ID_004", "jxb_ids": "jxb_id_04", "jsxx": "赵六", "kklxdm": "50", "xkkz_id": "abc-456", "capacity": 5 },
+# --- V17核心改进1：预生成并保存/加载密钥，避免重复生成 ---
+def get_or_create_public_key():
+    """如果密钥文件不存在，则创建；否则直接读取。"""
+    if not os.path.exists(KEY_FILE):
+        print("首次启动，正在生成新的RSA密钥对并保存...")
+        key_pair = RSA.generate(1024)
+        modulus_b64 = base64.b64encode(long_to_bytes(key_pair.n)).decode('utf-8')
+        exponent_b64 = base64.b64encode(long_to_bytes(key_pair.e)).decode('utf-8')
+        key_data = {"modulus": modulus_b64, "exponent": exponent_b64}
+        with open(KEY_FILE, 'w') as f:
+            json.dump(key_data, f)
+        print(f"✅ 密钥已成功保存到 {KEY_FILE}，未来启动将提速。")
+        return key_data
+    else:
+        print(f"✅ 从 {KEY_FILE} 文件中快速加载密钥。")
+        with open(KEY_FILE, 'r') as f:
+            return json.load(f)
+
+mock_public_key_final = get_or_create_public_key()
+
+# --- 其他模拟数据保持不变 ---
+mock_full_course_db = {
+    # 课程1：计算机网络 (kch_id: COURSE_ID_001) 有两个教学班
+    "COURSE_ID_001": [
+        {
+            "kcmc": "【专业选修】计算机网络", "kch_id": "COURSE_ID_001", "jxb_id": "jxb_id_01",
+            "do_jxb_id": "jxb_id_01", # <--- 补全关键字段
+            "jsxx": "张三(教授)", "kklxdm": "10", "xkkz_id": "xyz-123", "kch": "C001",
+            "xnm": "2025", "xqm": "3", "sksj": "1-16周 周二第3,4节", "jxdd": "信息楼201", "xf": "3.0",
+            "kcsxmc": "专业核心课", "jxbrl": 60, "yxzrs": 42, # <--- 使用正确的容量/已选字段名
+        },
+        {
+            "kcmc": "【专业选修】计算机网络", "kch_id": "COURSE_ID_001", "jxb_id": "jxb_id_01_b",
+            "do_jxb_id": "jxb_id_01_b", # <--- 补全关键字段
+            "jsxx": "张三(教授)", "kklxdm": "10", "xkkz_id": "xyz-123", "kch": "C001",
+            "xnm": "2025", "xqm": "3", "sksj": "1-16周 周三第5,6节", "jxdd": "信息楼202", "xf": "3.0",
+            "kcsxmc": "专业核心课", "jxbrl": 60, "yxzrs": 39, # <--- 容量已满
+        }
+    ],
+    # 课程2：操作系统 (kch_id: COURSE_ID_002) 只有一个教学班
+    "COURSE_ID_002": [
+        {
+            "kcmc": "【专业选修】操作系统", "kch_id": "COURSE_ID_002", "jxb_id": "jxb_id_02",
+            "do_jxb_id": "jxb_id_02", # <--- 补全关键字段
+            "jsxx": "李四(教授)", "kklxdm": "10", "xkkz_id": "xyz-123", "kch": "C002",
+            "xnm": "2025", "xqm": "3", "sksj": "1-16周 周四第1,2节", "jxdd": "信息楼305", "xf": "3.0",
+            "kcsxmc": "专业核心课", "jxbrl": 40, "yxzrs": 22,
+        }
+    ]
 }
 
+# 3. 完整的隐藏域字典
 mock_hidden_inputs = {
-    "rwlx": "1", "xklc": "1", "xkly": "1", "bklx_id": "0", "sfkkjyxdxnxq": "0", "kzkcgs": "0", "xqh_id": "2023-2024",
-    "jg_id_1": "08", "zyh_id": "080901", "zyfx_id": "null", "txbsfrl": "0", "njdm_id": "2021", "bh_id": "21080901",
+    # --- 首先，确保这两个关键字段存在 ---
+    "firstKklxdm": "10",
+    "firstXkkzId": "xyz-123",
+    
+    # --- 然后，包含您提供的所有其他字段 ---
+    "rwlx": "1", "xklc": "1", "xkly": "1", "bklx_id": "0", "sfkkjyxdxnxq": "0", "kzkcgs": "0", "xqh_id": "2025",
+    "jg_id_1": "08", "zyh_id": "080901", "zyfx_id": "null", "txbsfrl": "0", "njdm_id": "2022", "bh_id": "22080901",
     "xbm": "1", "xslbdm": "11", "mzm": "01", "xz": "4", "ccdm": "3", "xsbj": "0", "sfkknj": "0", "gnjkxdnj": "0",
     "sfkkzy": "0", "kzybkxy": "0", "sfznkx": "0", "zdkxms": "0", "sfkxq": "0", "sfkcfx": "0", "bbhzxjxb": "0",
-    "kkbk": "0", "kkbkdj": "", "xkxnm": "2024", "xkxqm": "3", "xkxskcgskg": "0", "njdm_id_xs": "2021",
+    "kkbk": "0", "kkbkdj": "", "xkxnm": "2025", "xkxqm": "3", "xkxskcgskg": "0", "njdm_id_xs": "2022",
     "zyh_id_xs": "080901", "rlkz": "0", "cdrlkz": "0", "rlzlkz": "1", "jxbzcxskg": "0",
 }
 
 class MockAPIHandler(http.server.SimpleHTTPRequestHandler):
+    # 所有 do_GET, do_POST, _log_request, _send_response 函数保持不变
+    # 这里为了简洁省略，请使用您之前版本中完整的函数代码
     def _log_request(self, method):
         print(f"\n--- 收到请求 ---\n时间: {time.strftime('%Y-%m-%d %H:%M:%S')}\n方法: {method}\n路径: {self.path}\n-----------------")
-
     def _send_response(self, status_code, content, content_type="application/json"):
         self.send_response(status_code)
         self.send_header("Content-type", content_type)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(content.encode("utf-8"))
-
     def do_POST(self):
         self._log_request("POST")
+        content_length = int(self.headers.get('Content-Length', 0))
+        post_params = parse_qs(self.rfile.read(content_length).decode('utf-8'))
         if "login" in self.path.lower():
-            print("✅ [POST] 识别为提交账号密码请求，返回成功...")
             self._send_response(200, '{"result":"success", "msg":"登录成功(模拟)！"}')
-            return
-        if "zzxkyzbpartdisplay" in self.path.lower():
-            print("✅ [POST] 识别为获取课程列表请求...")
-            self._send_response(200, json.dumps(list(mock_courses_db.values()), ensure_ascii=False))
-            return
-        if "elect-check" in self.path.lower():
-            print("✅ [POST] 识别为选课请求...")
-            # ... (选课逻辑不变) ...
-            content_length = int(self.headers['Content-Length'])
-            post_data = self.rfile.read(content_length)
-            params = parse_qs(post_data.decode('utf-8'))
-            jxb_id = params.get("jxb_ids", [None])[0]
-            if not jxb_id or jxb_id not in mock_courses_db:
-                self._send_response(200, '{"code": -1, "msg": "课程不存在(模拟)"}')
-                return
-            course = mock_courses_db[jxb_id]
-            if course["capacity"] > 0:
-                course["capacity"] -= 1
-                self._send_response(200, f'{{"code": 1000, "msg": "选课成功！(模拟)"}}')
+        elif "partdisplay" in self.path.lower():
+            requested_kklxdm = post_params.get('kklxdm', [None])[0]
+            overview_courses = [v[0] for k, v in mock_full_course_db.items() if v and v[0].get('kklxdm') == requested_kklxdm]
+            self._send_response(200, json.dumps({"tmpList": overview_courses}, ensure_ascii=False))
+        elif "withkch" in self.path.lower():
+            requested_kch_id = post_params.get('kch_id', [None])[0]
+            self._send_response(200, json.dumps(mock_full_course_db.get(requested_kch_id, []), ensure_ascii=False))
+        elif "xkbcz" in self.path.lower():
+            jxb_id = post_params.get("jxb_ids", [None])[0]
+            target_class = next((c for classes in mock_full_course_db.values() for c in classes if c.get('jxb_id') == jxb_id), None)
+            if target_class and int(target_class.get("yxzrs", 0)) < int(target_class.get("jxbrl", 0)):
+                self._send_response(200, json.dumps({"flag": "1", "msg": "选课成功！"}))
             else:
-                self._send_response(200, '{"code": -1, "msg": "课程容量不足(模拟)"}')
-            return
-        self._send_response(404, '{"error": "POST endpoint not found"}')
-
+                self._send_response(200, json.dumps({"flag": "-1", "msg": "该课程选课人数已满！"}))
+        else:
+            self._send_response(404, '{"error": "POST endpoint not found"}')
     def do_GET(self):
         self._log_request("GET")
-
-        # --- 【核心修正】新增对获取公钥请求的正确处理 ---
         if "getpublickey" in self.path.lower():
-            print("✅ [GET] 识别为获取公钥请求，返回模拟公钥...")
-            # 模拟一个真实的公钥响应格式，包含 modulus 和 exponent
-            mock_key = {
-                "modulus": "009c962b6ca21c33c30291c53e6d859b15c2e171343715a388539198b165500a4025d5d1c435a3b2a54d588960b73c4e833446b412239e5b323b4007b82f1ff5b2c5f59052b6b5952329241575a7f920f2e0c0f991f869a8f278d655ecf473e6b2067137b01b31525a81e344e1d30560938f6575ff5748a1c9359a34a04e4604e4028c31393694f4c4794e5a9733230d4750a9057d235c5c3e624177d853b946894569584852a3928a313b516c141e5a5913f0a5a3a5a9",
-                "exponent": "10001"
-            }
-            self._send_response(200, json.dumps(mock_key))
-            return
-
-        if "login" in self.path.lower():
-            print("✅ [GET] 识别为访问登录页面请求，返回页面和Cookie...")
-            self.send_response(200)
-            self.send_header("Content-type", "text/html; charset=utf-8")
-            self.send_header("Set-Cookie", "JSESSIONID=mock_session_12345; Path=/")
-            self.end_headers()
-            self.wfile.write("<html><body><h1>模拟登录页面</h1></body></html>".encode("utf-8"))
-            return
-        
-        if "initmenu" in self.path.lower():
-            print("✅ [GET] 识别为获取用户信息请求...")
-            self._send_response(200, '<span class="user-info">你好, 模拟用户</span>', "text/html")
-            return
-
-        if "zzxkyzxk" in self.path.lower():
-            print("✅ [GET] 识别为获取隐藏参数页面请求...")
+            self._send_response(200, json.dumps(mock_public_key_final))
+        elif "login" in self.path.lower():
+            self._send_response(200, "<html><body>...</body></html>", "text/html")
+        elif "zzxkyz" in self.path.lower():
             inputs_html = "".join([f'<input type="hidden" name="{name}" value="{value}"/>\n' for name, value in mock_hidden_inputs.items()])
             self._send_response(200, f"<html><body><form>{inputs_html}</form></body></html>", "text/html")
-            return
-            
-        self._send_response(404, '{"error": "GET endpoint not found"}')
+        else:
+            self._send_response(404, '{"error": "GET endpoint not found"}')
 
-Handler = MockAPIHandler
+# --- V17核心改进2：使用多线程服务器 ---
+class ThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+    pass
 
-with socketserver.TCPServer(("", PORT), Handler) as httpd:
-    print(f"✅ 模拟教务系统服务器已启动 (V4 - 终极版)")
-    print(f"   请将你的程序教务系统地址设置为: http://localhost:{PORT}")
-    print(f"   服务器正在 http://localhost:{PORT} 上监听请求...")
-    httpd.serve_forever()
+if __name__ == "__main__":
+    # 使用新的多线程服务器来启动
+    with ThreadingTCPServer(("", PORT), MockAPIHandler) as httpd:
+        print("\n=======================================================")
+        print(f"✅ 模拟教务系统服务器已启动 (V17 - 性能优化版)")
+        print(f"   - 服务器类型: 多线程 (ThreadingTCPServer)")
+        print("\n   请将你的程序教务系统地址设置为: http://localhost:8080")
+        print(f"   服务器正在 http://localhost:{PORT} 上监听请求...")
+        print("=======================================================\n")
+        httpd.serve_forever()
