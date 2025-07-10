@@ -1,1 +1,62 @@
-{}
+{
+    "test": [
+        {
+            "course_id": "COURSE_ID_001",
+            "class_id": "jxb_id_01",
+            "do_id": "jxb_id_01",
+            "title": "【专业选修】计算机网络",
+            "teacher": "张三(教授)",
+            "credit": 3.0,
+            "kklxdm": "10",
+            "xkkz_id": "xyz-123",
+            "capacity": 60,
+            "selected_number": 42,
+            "place": "信息楼201",
+            "time": "1-16周 周二第3,4节"
+        },
+        {
+            "course_id": "COURSE_ID_002",
+            "class_id": "jxb_id_02",
+            "do_id": "jxb_id_02",
+            "title": "【专业选修】操作系统",
+            "teacher": "李四(教授)",
+            "credit": 3.0,
+            "kklxdm": "10",
+            "xkkz_id": "xyz-123",
+            "capacity": 40,
+            "selected_number": 22,
+            "place": "信息楼305",
+            "time": "1-16周 周四第1,2节"
+        }
+    ],
+    "admin": [
+        {
+            "course_id": "COURSE_ID_001",
+            "class_id": "jxb_id_01",
+            "do_id": "jxb_id_01",
+            "title": "【专业选修】计算机网络",
+            "teacher": "张三(教授)",
+            "credit": 3.0,
+            "kklxdm": "10",
+            "xkkz_id": "xyz-123",
+            "capacity": 60,
+            "selected_number": 42,
+            "place": "信息楼201",
+            "time": "1-16周 周二第3,4节"
+        },
+        {
+            "course_id": "COURSE_ID_002",
+            "class_id": "jxb_id_02",
+            "do_id": "jxb_id_02",
+            "title": "【专业选修】操作系统",
+            "teacher": "李四(教授)",
+            "credit": 3.0,
+            "kklxdm": "10",
+            "xkkz_id": "xyz-123",
+            "capacity": 40,
+            "selected_number": 22,
+            "place": "信息楼305",
+            "time": "1-16周 周四第1,2节"
+        }
+    ]
+}
