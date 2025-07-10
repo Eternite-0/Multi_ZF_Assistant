@@ -56,7 +56,18 @@ mock_full_course_db = {
 }
 
 # 3. 完整的隐藏域字典
-mock_hidden_inputs = { "firstKklxdm": "10", "firstXkkzId": "xyz-123", "rwlx": "1", "xklc": "1", "xkly": "1", "xkxnm": "2025", "xkxqm": "3", # ...等其他字段
+mock_hidden_inputs = {
+    # --- 首先，确保这两个关键字段存在 ---
+    "firstKklxdm": "10",
+    "firstXkkzId": "xyz-123",
+    
+    # --- 然后，包含您提供的所有其他字段 ---
+    "rwlx": "1", "xklc": "1", "xkly": "1", "bklx_id": "0", "sfkkjyxdxnxq": "0", "kzkcgs": "0", "xqh_id": "2025",
+    "jg_id_1": "08", "zyh_id": "080901", "zyfx_id": "null", "txbsfrl": "0", "njdm_id": "2022", "bh_id": "22080901",
+    "xbm": "1", "xslbdm": "11", "mzm": "01", "xz": "4", "ccdm": "3", "xsbj": "0", "sfkknj": "0", "gnjkxdnj": "0",
+    "sfkkzy": "0", "kzybkxy": "0", "sfznkx": "0", "zdkxms": "0", "sfkxq": "0", "sfkcfx": "0", "bbhzxjxb": "0",
+    "kkbk": "0", "kkbkdj": "", "xkxnm": "2025", "xkxqm": "3", "xkxskcgskg": "0", "njdm_id_xs": "2022",
+    "zyh_id_xs": "080901", "rlkz": "0", "cdrlkz": "0", "rlzlkz": "1", "jxbzcxskg": "0",
 }
 
 class MockAPIHandler(http.server.SimpleHTTPRequestHandler):
