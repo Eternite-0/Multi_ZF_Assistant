@@ -58,21 +58,21 @@ class ZFN_GUI(QMainWindow):
         self.logged_in_clients = {}
         self.priority_grabbers = {}
         self.current_selectable_courses = {}
+        self.current_wishlist_courses = [] # 新增：用于存储当前显示的志愿列表课程对象
         self.fetched_data = {}
         self.last_batch_action = None
         self.batch_action_params = {}
-        self.wishlists = {} # 新增
+        self.wishlists = {}
 
-        # 【修正】: 使用列表管理所有工作线程，防止被意外销毁
         self.active_workers = []
 
         self.init_ui()
         self.load_initial_config()
-        self.load_all_wishlists() # 新增调用
+        self.load_all_wishlists()
 
     def init_ui(self):
         self.setWindowTitle('LNU正方教务系统助手 (多账户稳定版)')
-        self.setGeometry(100, 100, 1100, 800)
+        self.setGeometry(100, 100, 1300, 850) # 再次加宽以容纳按钮
         self.setStyleSheet(STYLESHEET)
         self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.WindowCloseButtonHint |
                             Qt.WindowType.WindowMinimizeButtonHint | Qt.WindowType.WindowMaximizeButtonHint)
@@ -195,26 +195,57 @@ class ZFN_GUI(QMainWindow):
         params_layout.addRow(self.fetch_courses_button)
         top_container_layout.addWidget(params_group, 2)
         grabber_layout.addWidget(top_group)
+        
+        middle_layout = QHBoxLayout()
+        
         courses_group = QWidget()
         courses_group.setObjectName("group-box")
         courses_layout = QVBoxLayout(courses_group)
-        courses_layout.addWidget(QLabel("可选课程列表 (选择作为志愿，按显示顺序抢课)"))
+        courses_layout.addWidget(QLabel("可选课程列表 (勾选作为志愿)"))
         self.courses_table = QTableWidget()
         self.courses_table.setColumnCount(5)
         self.courses_table.setHorizontalHeaderLabels(['课程ID', '课程名称', '教师', '上课时间', '已选/容量'])
         self.courses_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.courses_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.courses_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.courses_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.courses_table.setToolTip("按住Ctrl可多选，按住Shift可连续选择")
+        self.courses_table.itemSelectionChanged.connect(self.update_wishlist_from_table_selection)
         courses_layout.addWidget(self.courses_table)
-        grabber_layout.addWidget(courses_group)
+        middle_layout.addWidget(courses_group, 3)
+
+        wishlist_container = QWidget()
+        wishlist_container_layout = QHBoxLayout(wishlist_container)
+        wishlist_group = QWidget()
+        wishlist_group.setObjectName("group-box")
+        wishlist_layout = QVBoxLayout(wishlist_group)
+        wishlist_layout.addWidget(QLabel("当前志愿列表 (可拖拽排序)"))
+        self.wishlist_display = QListWidget()
+        self.wishlist_display.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self.wishlist_display.setToolTip("这里显示您已选择的课程志愿，可直接拖拽调整顺序。")
+        self.wishlist_display.model().rowsMoved.connect(self.wishlist_order_changed)
+        wishlist_layout.addWidget(self.wishlist_display)
+        wishlist_container_layout.addWidget(wishlist_group)
+        
+        wishlist_controls = QVBoxLayout()
+        self.wishlist_up_button = QPushButton("🔼 上移")
+        self.wishlist_down_button = QPushButton("🔽 下移")
+        self.wishlist_up_button.clicked.connect(self.move_wishlist_item_up)
+        self.wishlist_down_button.clicked.connect(self.move_wishlist_item_down)
+        wishlist_controls.addStretch()
+        wishlist_controls.addWidget(self.wishlist_up_button)
+        wishlist_controls.addWidget(self.wishlist_down_button)
+        wishlist_controls.addStretch()
+        wishlist_container_layout.addLayout(wishlist_controls)
+        middle_layout.addWidget(wishlist_container, 2)
+
+        grabber_layout.addLayout(middle_layout)
+
         bottom_layout = QHBoxLayout()
         control_group = QWidget()
         control_group.setObjectName("group-box")
         control_layout = QVBoxLayout(control_group)
-        self.save_wishlist_button = QPushButton('💾 保存选中志愿')
-        self.load_wishlist_button = QPushButton('📂 加载保存的志愿')
+        self.save_wishlist_button = QPushButton('💾 保存当前志愿')
+        self.load_wishlist_button = QPushButton('📂 加载已存志愿')
         self.start_grab_button = QPushButton('🚀 开始志愿抢课')
         self.stop_grab_button = QPushButton('停止所有抢课')
         control_layout.addWidget(self.save_wishlist_button)
@@ -231,6 +262,7 @@ class ZFN_GUI(QMainWindow):
         bottom_layout.addWidget(control_group, 1)
         bottom_layout.addWidget(log_group, 3)
         grabber_layout.addLayout(bottom_layout)
+        
         self.fetch_courses_button.clicked.connect(self.fetch_block_courses)
         self.start_grab_button.clicked.connect(self.start_priority_grabbing)
         self.stop_grab_button.clicked.connect(self.stop_all_grabbing)
@@ -239,14 +271,11 @@ class ZFN_GUI(QMainWindow):
         self.tabs.addTab(self.grabber_tab, "抢课助手")
 
     def _add_worker(self, worker_instance):
-        """统一的worker管理方法"""
         self.active_workers.append(worker_instance)
-        # 清理已完成的旧 worker，防止列表无限增长
         self.active_workers = [w for w in self.active_workers if not w.isFinished()]
 
     def closeEvent(self, event):
         self.save_all_configs()
-        # 停止所有仍在运行的线程
         self.stop_all_grabbing()
         for worker in self.active_workers:
             if worker.isRunning():
@@ -578,7 +607,6 @@ class ZFN_GUI(QMainWindow):
             
         self.grab_log_display.append(f"成功获取 {len(courses)} 门课程，请在下方表格中选择志愿课程。")
         for course in courses:
-            # 使用一个唯一的ID作为字典的键，do_id是最佳选择
             course_key = course.get('do_id') or course.get('class_id')
             if not course_key: continue
             
@@ -594,7 +622,6 @@ class ZFN_GUI(QMainWindow):
         self.start_grab_button.setEnabled(True)
 
     def start_priority_grabbing(self):
-        """【已修复】为每个选中的账户，使用其专属志愿列表和目标数，并发启动抢课任务。"""
         selected_account_items = self.grabber_account_list.selectedItems()
         if not selected_account_items:
             return QMessageBox.warning(self, "提示", "请选择至少一个要用于抢课的账户。")
@@ -623,7 +650,6 @@ class ZFN_GUI(QMainWindow):
             target_count = 1
             prioritized_courses = []
 
-            # 【关键修复】再次检查数据格式
             if isinstance(wishlist_data, dict):
                 target_count = wishlist_data.get("target_count", 1)
                 prioritized_courses = wishlist_data.get("courses", [])
@@ -656,7 +682,6 @@ class ZFN_GUI(QMainWindow):
         self.grab_log_display.append(f"[{sid}] {message}")
     
     def on_grab_finished(self, sid):
-        # 线程结束后，检查是否所有抢课任务都已结束
         all_finished = not any(g.isRunning() for g in self.priority_grabbers.values())
         if all_finished:
             self.start_grab_button.setEnabled(True)
@@ -665,60 +690,39 @@ class ZFN_GUI(QMainWindow):
             self.priority_grabbers.clear()
 
     def load_all_wishlists(self):
-        """加载所有已保存的志愿列表到内存。"""
         self.wishlists = load_wishlists()
         self.log_to_grabber(f"已加载 {len(self.wishlists)} 个账户的已存志愿。")
 
     def save_wishlist_for_selected(self):
-        """【已更新】为当前选中的账户保存界面上的志愿列表和目标抢课数。"""
         selected_account_items = self.grabber_account_list.selectedItems()
         if not selected_account_items:
             return QMessageBox.warning(self, "提示", "请在左侧选择至少一个要保存志愿的账户。")
         
-        selected_rows = self.courses_table.selectionModel().selectedRows()
-        if not selected_rows:
-            return QMessageBox.warning(self, "提示", "请在下方课程列表中选择志愿课程。")
-
-        sorted_rows = sorted([index.row() for index in selected_rows])
+        if not self.current_wishlist_courses:
+            return QMessageBox.warning(self, "提示", "当前志愿列表为空，没有可保存的内容。")
         
-        wishlist_courses = []
-        for row in sorted_rows:
-            # 使用课程的唯一标识来查找完整的课程信息
-            title_text = self.courses_table.item(row, 1).text()
-            teacher_text = self.courses_table.item(row, 2).text()
-            matching_course = next((c for c in self.current_selectable_courses.values() if c.get('title') == title_text and c.get('teacher') == teacher_text), None)
-            if matching_course:
-                wishlist_courses.append(matching_course)
-
-        if not wishlist_courses:
-            return QMessageBox.warning(self, "错误", "未能从界面获取有效的课程数据。")
-        
-        target_count = self.grab_target_count_input.value() # 获取目标数量
+        target_count = self.grab_target_count_input.value()
         sids_to_save = [item.text() for item in selected_account_items]
         
         for sid in sids_to_save:
-            # 创建新的数据结构
             self.wishlists[sid] = {
                 "target_count": target_count,
-                "courses": wishlist_courses
+                "courses": self.current_wishlist_courses
             }
         
-        save_wishlists(self.wishlists) # 使用 core/config.py 中的函数保存
-        self.log_to_grabber(f"已为账户 {', '.join(sids_to_save)} 保存了 {len(wishlist_courses)} 门志愿(目标 {target_count} 门)。")
+        save_wishlists(self.wishlists)
+        self.log_to_grabber(f"已为账户 {', '.join(sids_to_save)} 保存了 {len(self.current_wishlist_courses)} 门志愿(目标 {target_count} 门)。")
         QMessageBox.information(self, "成功", f"已为账户 {', '.join(sids_to_save)} 成功保存志愿列表！")
 
-
     def load_wishlist_to_ui(self):
-        """【已修复】当选择账户时，自动加载其志愿和目标数到UI，兼容新旧数据格式。"""
-        selected_account_items = self.grabber_account_list.selectedItems()
-        # 清空旧的勾选和重置目标数为默认值
         self.courses_table.clearSelection()
         self.grab_target_count_input.setValue(1)
+        self.update_wishlist_display([]) # 清空显示
 
+        selected_account_items = self.grabber_account_list.selectedItems()
         if not selected_account_items:
             return
         
-        # 只加载第一个选中账户的配置到UI
         sid_to_load = selected_account_items[0].text()
         wishlist_data = self.wishlists.get(sid_to_load)
 
@@ -729,34 +733,34 @@ class ZFN_GUI(QMainWindow):
         target_count = 1
         wishlist_courses = []
         
-        # 【关键修复】检查wishlist_data是新格式(dict)还是旧格式(list)
         if isinstance(wishlist_data, dict):
-            # 是新格式，正常读取
             target_count = wishlist_data.get("target_count", 1)
             wishlist_courses = wishlist_data.get("courses", [])
         elif isinstance(wishlist_data, list):
-            # 是旧格式，只读取课程列表
             self.log_to_grabber(f"检测到账户 {sid_to_load} 的志愿为旧格式，将为您加载。建议重新保存一次以更新格式。")
             wishlist_courses = wishlist_data
         else:
             self.log_to_grabber(f"❌ 账户 {sid_to_load} 的志愿格式不正确，无法加载。")
             return
 
-        # 加载目标抢课数和志愿列表到UI
         self.grab_target_count_input.setValue(target_count)
+        self.update_wishlist_display(wishlist_courses)
+
         if not wishlist_courses:
             return
             
         loaded_count = 0
         total_wishlist_count = len(wishlist_courses)
 
+        # 阻止信号触发，避免循环更新
+        self.courses_table.blockSignals(True)
+        self.courses_table.clearSelection()
         for row in range(self.courses_table.rowCount()):
             title_text = self.courses_table.item(row, 1).text()
             teacher_text = self.courses_table.item(row, 2).text()
             course_in_table = next((c for c in self.current_selectable_courses.values() if c.get('title') == title_text and c.get('teacher') == teacher_text), None)
             
             if course_in_table:
-                # 检查课程是否在志愿列表中
                 is_in_wishlist = any(
                     (c.get('do_id') or c.get('class_id')) == (course_in_table.get('do_id') or course_in_table.get('class_id')) 
                     for c in wishlist_courses
@@ -764,13 +768,119 @@ class ZFN_GUI(QMainWindow):
                 if is_in_wishlist:
                     self.courses_table.selectRow(row)
                     loaded_count += 1
+        self.courses_table.blockSignals(False)
         
         self.log_to_grabber(
-    f"为账户 {sid_to_load} 加载志愿: "
-    f"志愿列表共 {total_wishlist_count} 门, "
-    f"目标抢课数: {target_count}。"
-)
+            f"为账户 {sid_to_load} 加载志愿: "
+            f"志愿列表共 {total_wishlist_count} 门, "
+            f"目标抢课数: {target_count}。"
+        )
+    
+    def update_wishlist_display(self, courses):
+        """用给定的课程列表更新右侧的志愿显示列表（已加入时间显示）"""
+        self.current_wishlist_courses = courses
+        self.wishlist_display.clear()
+        for i, course in enumerate(courses):
+            # 正确的显示格式，包含时间
+            display_text = f"{i+1}. {course.get('title', 'N/A')} - {course.get('teacher', 'N/A')} - {course.get('time', 'N/A')}"
+            self.wishlist_display.addItem(QListWidgetItem(display_text))
+
+    def update_wishlist_from_table_selection(self):
+        """当用户在主课程表中选择变化时，更新志愿列表（已修正）"""
+        selected_rows_indices = self.courses_table.selectionModel().selectedRows()
+        
+        # 保持现有志愿的顺序，只增删
+        current_wishlist_keys = set((c.get('do_id') or c.get('class_id')) for c in self.current_wishlist_courses)
+        
+        selected_courses_in_table = []
+        for index in selected_rows_indices:
+            row = index.row()
+            # 修正：使用更可靠的方式从表格行找到唯一的课程对象
+            # 避免仅通过文本匹配，因为可能存在同名同教师但不同时间的课程
+            title_text = self.courses_table.item(row, 1).text()
+            teacher_text = self.courses_table.item(row, 2).text()
+            # 修正：从正确的第 3 列获取时间
+            time_text = self.courses_table.item(row, 3).text() 
+            
+            # 修正：使用更可靠的匹配逻辑
+            matching_course = next((c for c in self.current_selectable_courses.values() 
+                                    if c.get('title') == title_text 
+                                    and c.get('teacher') == teacher_text 
+                                    and c.get('time') == time_text), None)
+            if matching_course:
+                selected_courses_in_table.append(matching_course)
+
+        selected_keys_in_table = set((c.get('do_id') or c.get('class_id')) for c in selected_courses_in_table)
+
+        # 移除取消勾选的
+        new_wishlist = [c for c in self.current_wishlist_courses if (c.get('do_id') or c.get('class_id')) in selected_keys_in_table]
+        
+        # 添加新勾选的
+        for course in selected_courses_in_table:
+            key = course.get('do_id') or course.get('class_id')
+            if key not in current_wishlist_keys:
+                new_wishlist.append(course)
+
+        self.update_wishlist_display(new_wishlist)
+
+    def move_wishlist_item_up(self):
+        current_row = self.wishlist_display.currentRow()
+        if current_row > 0:
+            item = self.wishlist_display.takeItem(current_row)
+            self.wishlist_display.insertItem(current_row - 1, item)
+            self.wishlist_display.setCurrentRow(current_row - 1)
+            
+            # 同步数据源
+            course = self.current_wishlist_courses.pop(current_row)
+            self.current_wishlist_courses.insert(current_row - 1, course)
+            self.update_wishlist_display(self.current_wishlist_courses) # 重新编号
+
+    def move_wishlist_item_down(self):
+        current_row = self.wishlist_display.currentRow()
+        if current_row < self.wishlist_display.count() - 1 and current_row != -1:
+            item = self.wishlist_display.takeItem(current_row)
+            self.wishlist_display.insertItem(current_row + 1, item)
+            self.wishlist_display.setCurrentRow(current_row + 1)
+            
+            # 同步数据源
+            course = self.current_wishlist_courses.pop(current_row)
+            self.current_wishlist_courses.insert(current_row + 1, course)
+            self.update_wishlist_display(self.current_wishlist_courses) # 重新编号
+
+    def wishlist_order_changed(self):
+        """拖拽结束后，根据显示顺序重建数据源（已修正解析逻辑）"""
+        new_ordered_courses = []
+        all_display_texts = [self.wishlist_display.item(i).text() for i in range(self.wishlist_display.count())]
+
+        temp_course_pool = list(self.current_wishlist_courses)
+
+        for text in all_display_texts:
+            found_course = None
+            try:
+                # 修正：新的解析逻辑，以应对 "标题 - 老师 - 时间" 的格式
+                # 从右边分割两次，可以稳定地分离出最后的时间和老师
+                parts = text.split('. ', 1)[1].rsplit(' - ', 2)
+                title, teacher, time = parts[0], parts[1], parts[2]
+                
+                # 在旧的志愿列表中找到对应的课程对象
+                # 为了防止完全相同的课程（标题、老师、时间都一样），我们从池中移除已匹配的
+                for i, c in enumerate(temp_course_pool):
+                    if c.get('title') == title and c.get('teacher') == teacher and c.get('time') == time:
+                        found_course = temp_course_pool.pop(i)
+                        break
+
+                if found_course:
+                    new_ordered_courses.append(found_course)
+            except (IndexError, ValueError):
+                self.log_to_grabber(f"警告：无法解析志愿项 '{text}'，顺序可能不正确。")
+                continue
+        
+        # 只有在解析成功且数量匹配时才更新，防止出错
+        if len(new_ordered_courses) == len(self.current_wishlist_courses):
+            self.update_wishlist_display(new_ordered_courses)
+        else:
+            self.log_to_grabber("警告：拖拽排序后解析志愿列表失败，恢复原顺序。")
+            self.update_wishlist_display(self.current_wishlist_courses)
 
     def log_to_grabber(self, message):
-        """一个简单的日志记录函数"""
         self.grab_log_display.append(message)
