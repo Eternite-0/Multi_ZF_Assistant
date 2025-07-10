@@ -1,0 +1,12 @@
+[
+    {
+        "url": "http://localhost:9999/",
+        "sid": "test",
+        "password": "123456"
+    },
+    {
+        "url": "http://localhost:9999",
+        "sid": "admin",
+        "password": "123456"
+    }
+]
