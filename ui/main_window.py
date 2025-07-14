@@ -6,8 +6,9 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLa
                              QComboBox, QTabWidget, QTableWidget, QTableWidgetItem,
                              QGridLayout, QFileDialog, QHeaderView,
                              QAbstractItemView, QMessageBox, QDialog, QDialogButtonBox,
-                             QInputDialog, QListWidget, QListWidgetItem, QSpinBox)
-from PyQt6.QtCore import Qt
+                             QInputDialog, QListWidget, QListWidgetItem, QSpinBox,
+                             QCheckBox, QDateTimeEdit, QFrame)
+from PyQt6.QtCore import Qt, QTimer, QDateTime
 
 # 确保这些导入路径是正确的
 from api.zfn_api import Client
@@ -65,6 +66,13 @@ class ZFN_GUI(QMainWindow):
         self.wishlists = {}
 
         self.active_workers = []
+        
+        # 定时抢课相关变量
+        self.scheduled_enabled = False
+        self.scheduled_time = None
+        self.timer_for_current_time = QTimer()
+        self.timer_for_scheduled_grab = QTimer()
+        self.waiting_for_scheduled_grab = False
 
         self.init_ui()
         self.load_initial_config()
@@ -244,6 +252,39 @@ class ZFN_GUI(QMainWindow):
         control_group = QWidget()
         control_group.setObjectName("group-box")
         control_layout = QVBoxLayout(control_group)
+        
+        # 定时抢课设置区域
+        timing_frame = QFrame()
+        timing_frame.setFrameStyle(QFrame.Shape.Box)
+        timing_layout = QVBoxLayout(timing_frame)
+        timing_layout.addWidget(QLabel("⏰ 定时抢课设置"))
+        
+        # 启用定时抢课开关
+        self.scheduled_checkbox = QCheckBox("启用定时抢课")
+        self.scheduled_checkbox.setToolTip("启用后，点击开始抢课将等待到设定时间才开始")
+        timing_layout.addWidget(self.scheduled_checkbox)
+        
+        # 时间选择器
+        time_layout = QHBoxLayout()
+        time_layout.addWidget(QLabel("开始时间:"))
+        self.scheduled_datetime = QDateTimeEdit()
+        self.scheduled_datetime.setDateTime(QDateTime.currentDateTime().addSecs(3600))  # 默认一小时后
+        self.scheduled_datetime.setDisplayFormat("yyyy-MM-dd hh:mm:ss")
+        self.scheduled_datetime.setCalendarPopup(True)
+        self.scheduled_datetime.setMinimumDateTime(QDateTime.currentDateTime())
+        time_layout.addWidget(self.scheduled_datetime)
+        timing_layout.addLayout(time_layout)
+        
+        # 当前时间显示
+        current_time_layout = QHBoxLayout()
+        current_time_layout.addWidget(QLabel("当前时间:"))
+        self.current_time_label = QLabel()
+        current_time_layout.addWidget(self.current_time_label)
+        timing_layout.addLayout(current_time_layout)
+        
+        control_layout.addWidget(timing_frame)
+        
+        # 原有的控制按钮
         self.save_wishlist_button = QPushButton('💾 保存当前志愿')
         self.load_wishlist_button = QPushButton('📂 加载已存志愿')
         self.start_grab_button = QPushButton('🚀 开始志愿抢课')
@@ -268,6 +309,16 @@ class ZFN_GUI(QMainWindow):
         self.stop_grab_button.clicked.connect(self.stop_all_grabbing)
         self.save_wishlist_button.clicked.connect(self.save_wishlist_for_selected)
         self.load_wishlist_button.clicked.connect(self.load_wishlist_to_ui)
+        
+        # 定时抢课相关连接
+        self.scheduled_checkbox.toggled.connect(self.on_scheduled_checkbox_toggled)
+        self.timer_for_current_time.timeout.connect(self.update_current_time)
+        self.timer_for_scheduled_grab.timeout.connect(self.check_scheduled_time)
+        
+        # 启动当前时间显示定时器
+        self.timer_for_current_time.start(1000)  # 每秒更新一次当前时间
+        self.update_current_time()  # 立即更新一次
+        
         self.tabs.addTab(self.grabber_tab, "抢课助手")
 
     def _add_worker(self, worker_instance):
@@ -277,6 +328,11 @@ class ZFN_GUI(QMainWindow):
     def closeEvent(self, event):
         self.save_all_configs()
         self.stop_all_grabbing()
+        
+        # 停止所有定时器
+        self.timer_for_current_time.stop()
+        self.timer_for_scheduled_grab.stop()
+        
         for worker in self.active_workers:
             if worker.isRunning():
                 worker.quit()
@@ -622,6 +678,45 @@ class ZFN_GUI(QMainWindow):
         self.start_grab_button.setEnabled(True)
 
     def start_priority_grabbing(self):
+        """抢课启动入口 - 处理定时逻辑"""
+        selected_account_items = self.grabber_account_list.selectedItems()
+        if not selected_account_items:
+            return QMessageBox.warning(self, "提示", "请选择至少一个要用于抢课的账户。")
+
+        # 检查是否启用了定时抢课
+        if self.scheduled_enabled:
+            # 验证设定的时间
+            is_valid, start_immediately = self.validate_scheduled_time()
+            if not is_valid:
+                return  # 时间无效，用户选择取消
+            
+            if start_immediately:
+                # 立即开始抢课
+                self.execute_priority_grabbing()
+            else:
+                # 等待到设定时间
+                self.start_scheduled_waiting()
+        else:
+            # 未启用定时，直接开始抢课
+            self.execute_priority_grabbing()
+    
+    def start_scheduled_waiting(self):
+        """开始定时等待"""
+        scheduled_time = self.scheduled_datetime.dateTime()
+        self.log_to_grabber(f"⏰ 定时抢课已启动，等待到 {scheduled_time.toString('yyyy-MM-dd hh:mm:ss')} 开始")
+        
+        self.waiting_for_scheduled_grab = True
+        self.start_grab_button.setEnabled(False)
+        self.stop_grab_button.setEnabled(True)
+        
+        # 启动定时器，每秒检查一次
+        self.timer_for_scheduled_grab.start(1000)
+        
+        # 立即检查一次时间
+        self.check_scheduled_time()
+    
+    def execute_priority_grabbing(self):
+        """执行实际的抢课逻辑"""
         selected_account_items = self.grabber_account_list.selectedItems()
         if not selected_account_items:
             return QMessageBox.warning(self, "提示", "请选择至少一个要用于抢课的账户。")
@@ -670,11 +765,18 @@ class ZFN_GUI(QMainWindow):
             grabber.start()
 
     def stop_all_grabbing(self):
-        if not self.priority_grabbers: return
-        self.grab_log_display.append("\n--- 正在发送停止所有抢课任务的信号 ---")
-        for grabber in self.priority_grabbers.values():
-            if grabber.isRunning():
-                grabber.stop()
+        """停止所有抢课任务和定时等待"""
+        # 停止定时等待
+        if self.waiting_for_scheduled_grab:
+            self.stop_scheduled_waiting()
+        
+        # 停止所有抢课任务
+        if self.priority_grabbers:
+            self.grab_log_display.append("\n--- 正在发送停止所有抢课任务的信号 ---")
+            for grabber in self.priority_grabbers.values():
+                if grabber.isRunning():
+                    grabber.stop()
+        
         self.start_grab_button.setEnabled(True)
         self.stop_grab_button.setEnabled(False)
 
@@ -884,3 +986,84 @@ class ZFN_GUI(QMainWindow):
 
     def log_to_grabber(self, message):
         self.grab_log_display.append(message)
+    
+    # ==== 定时抢课相关方法 ====
+    
+    def update_current_time(self):
+        """更新当前时间显示"""
+        current_time = QDateTime.currentDateTime().toString("yyyy-MM-dd hh:mm:ss")
+        self.current_time_label.setText(current_time)
+    
+    def on_scheduled_checkbox_toggled(self, checked):
+        """定时抢课开关状态改变"""
+        self.scheduled_enabled = checked
+        if checked:
+            self.log_to_grabber("✅ 已启用定时抢课功能")
+        else:
+            self.log_to_grabber("❌ 已禁用定时抢课功能")
+            # 如果正在等待定时，停止等待
+            if self.waiting_for_scheduled_grab:
+                self.stop_scheduled_waiting()
+    
+    def check_scheduled_time(self):
+        """检查是否到达设定的抢课时间"""
+        if not self.scheduled_enabled or not self.waiting_for_scheduled_grab:
+            return
+            
+        current_time = QDateTime.currentDateTime()
+        scheduled_time = self.scheduled_datetime.dateTime()
+        
+        # 检查是否已到达或超过设定时间
+        if current_time >= scheduled_time:
+            self.log_to_grabber("🚀 到达设定时间，开始执行抢课...")
+            self.timer_for_scheduled_grab.stop()
+            self.waiting_for_scheduled_grab = False
+            self.start_grab_button.setText("🚀 开始志愿抢课")
+            self.start_grab_button.setEnabled(True)
+            
+            # 执行实际的抢课逻辑
+            self.execute_priority_grabbing()
+        else:
+            # 更新剩余时间显示
+            remaining_seconds = current_time.secsTo(scheduled_time)
+            hours = remaining_seconds // 3600
+            minutes = (remaining_seconds % 3600) // 60
+            seconds = remaining_seconds % 60
+            
+            time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+            self.start_grab_button.setText(f"⏰ 等待中 ({time_str})")
+    
+    def stop_scheduled_waiting(self):
+        """停止定时等待"""
+        self.timer_for_scheduled_grab.stop()
+        self.waiting_for_scheduled_grab = False
+        self.start_grab_button.setText("🚀 开始志愿抢课")
+        self.start_grab_button.setEnabled(True)
+        self.log_to_grabber("⏹️ 已停止定时等待")
+    
+    def validate_scheduled_time(self):
+        """验证设定的时间是否有效"""
+        current_time = QDateTime.currentDateTime()
+        scheduled_time = self.scheduled_datetime.dateTime()
+        
+        if scheduled_time <= current_time:
+            # 时间已过，询问用户是否立即开始或修改时间
+            reply = QMessageBox.question(
+                self, 
+                "时间设置", 
+                f"设定的开始时间 ({scheduled_time.toString('yyyy-MM-dd hh:mm:ss')}) 已过。\n\n"
+                f"当前时间: {current_time.toString('yyyy-MM-dd hh:mm:ss')}\n\n"
+                "是否立即开始抢课？\n"
+                "点击'是'立即开始，点击'否'取消并修改时间。",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+            
+            if reply == QMessageBox.StandardButton.Yes:
+                self.log_to_grabber("⚡ 用户选择立即开始抢课")
+                return True, True  # 验证通过，立即开始
+            else:
+                self.log_to_grabber("⏰ 用户选择修改时间，请重新设置")
+                return False, False  # 验证失败，不开始
+        
+        return True, False  # 验证通过，按时间等待

@@ -11,6 +11,7 @@ import requests
 import rsa
 from pyquery import PyQuery as pq
 from requests import exceptions
+from core.session_manager import SessionManager
 
 RASPIANIE = [
     ["8:00", "8:40"],
@@ -51,24 +52,33 @@ class Client:
         self.login_url = urljoin(self.base_url, "xtgl/login_slogin.html")
         self.kaptcha_url = urljoin(self.base_url, "kaptcha")
 
-        self.headers = requests.utils.default_headers()
-        self.headers["Referer"] = self.login_url
-        self.headers[
-            "User-Agent"
-        ] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36"
-        self.headers[
-            "Accept"
-        ] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3"
-
-        self.sess = requests.Session()
-        self.sess.keep_alive = False
+        # 使用SessionManager替代原来的requests.Session
+        self.session_manager = SessionManager(self.base_url, self.timeout)
+        
+        # 保持向后兼容性
+        self.sess = self.session_manager.session
         self.cookies = cookies
+        
+        # 保持原有的headers设置，确保向后兼容
+        self.headers = self.session_manager.session.headers
+        
+        # 如果提供了cookies，更新到session中
+        if cookies:
+            self.sess.cookies.update(cookies)
 
     # --- 辅助函数 ---
+    def _safe_request(self, method, url, **kwargs):
+        """安全的请求方法，使用SessionManager"""
+        return self.session_manager.request(method, url, **kwargs)
+    
+    def get_login_status(self):
+        """获取登录状态"""
+        return self.session_manager.get_login_status()
+    
     def _get_course_entry_page_doc(self):
         """获取选课入口页面，并返回解析后的PyQuery对象和原始响应"""
         url_entry = urljoin(self.base_url, "xsxk/zzxkyzb_cxZzxkYzbIndex.html?gnmkdm=N253512&layout=default")
-        response = self.sess.get(url_entry, headers=self.headers, timeout=self.timeout)
+        response = self.session_manager.get(url_entry)
         response.raise_for_status()
         response.encoding = 'UTF-8'
         
@@ -79,83 +89,21 @@ class Client:
         return doc, response
 
     def login(self, sid, password):
-        """登录教务系统"""
-        need_verify = False
+        """登录教务系统 - 使用SessionManager"""
         try:
-            # 登录页
-            req_csrf = self.sess.get(
-                self.login_url, headers=self.headers, timeout=self.timeout
-            )
-            if req_csrf.status_code != 200:
-                return {"code": 2333, "msg": "教务系统挂了"}
-            # 获取csrf_token
-            doc = pq(req_csrf.text)
-            csrf_token = doc("#csrftoken").attr("value")
-            pre_cookies = self.sess.cookies.get_dict()
-            # 获取publicKey并加密密码
-            req_pubkey = self.sess.get(
-                self.key_url, headers=self.headers, timeout=self.timeout
-            ).json()
-            modulus = req_pubkey["modulus"]
-            exponent = req_pubkey["exponent"]
-            if str(doc("input#yzm")) == "":
-                # 不需要验证码
-                encrypt_password = self.encrypt_password(password, modulus, exponent)
-                # 登录数据
-                login_data = {
-                    "csrftoken": csrf_token,
-                    "yhm": sid,
-                    "mm": encrypt_password,
-                }
-                # 请求登录
-                req_login = self.sess.post(
-                    self.login_url,
-                    headers=self.headers,
-                    data=login_data,
-                    timeout=self.timeout,
-                )
-                doc = pq(req_login.text)
-                tips = doc("p#tips")
-                if str(tips) != "":
-                    if "用户名或密码" in tips.text():
-                        return {"code": 1002, "msg": "用户名或密码不正确"}
-                    return {"code": 998, "msg": tips.text()}
-                self.cookies = self.sess.cookies.get_dict()
-                return {"code": 1000, "msg": "登录成功", "data": {"cookies": self.cookies}}
-            # 需要验证码，返回相关页面验证信息给用户，TODO: 增加更多验证方式
-            need_verify = True
-            req_kaptcha = self.sess.get(
-                self.kaptcha_url, headers=self.headers, timeout=self.timeout
-            )
-            kaptcha_pic = base64.b64encode(req_kaptcha.content).decode()
-            return {
-                "code": 1001,
-                "msg": "获取验证码成功",
-                "data": {
-                    "sid": sid,
-                    "csrf_token": csrf_token,
-                    "cookies": pre_cookies,
-                    "password": password,
-                    "modulus": modulus,
-                    "exponent": exponent,
-                    "kaptcha_pic": kaptcha_pic,
-                    "timestamp": time.time(),
-                },
-            }
-        except exceptions.Timeout:
-            msg = "获取验证码超时" if need_verify else "登录超时"
-            return {"code": 1003, "msg": msg}
-        except (
-                exceptions.RequestException,
-                json.decoder.JSONDecodeError,
-                AttributeError,
-        ):
-            traceback.print_exc()
-            return {"code": 2333, "msg": "请重试，若多次失败可能是系统错误维护或需更新接口"}
+            # 使用SessionManager进行登录
+            result = self.session_manager.login(sid, password)
+            
+            # 如果登录成功，更新本地cookies
+            if result.get('code') == 1000:
+                self.cookies = result.get('data', {}).get('cookies', {})
+                self.sess = self.session_manager.session
+                
+            return result
+            
         except Exception as e:
             traceback.print_exc()
-            msg = "获取验证码时未记录的错误" if need_verify else "登录时未记录的错误"
-            return {"code": 999, "msg": f"{msg}：{str(e)}"}
+            return {"code": 999, "msg": f"登录时发生错误: {str(e)}"}
 
     def login_with_kaptcha(
             self, sid, csrf_token, cookies, password, modulus, exponent, kaptcha, **kwargs
@@ -214,12 +162,7 @@ class Client:
         """获取个人信息"""
         url = urljoin(self.base_url, "xsxxxggl/xsxxwh_cxCkDgxsxx.html?gnmkdm=N100801")
         try:
-            req_info = self.sess.get(
-                url,
-                headers=self.headers,
-                cookies=self.cookies,
-                timeout=self.timeout,
-            )
+            req_info = self._safe_request('GET', url)
             if req_info.status_code != 200:
                 return {"code": 2333, "msg": "教务系统挂了"}
             doc = pq(req_info.text)
@@ -1084,7 +1027,7 @@ class Client:
             self.base_url,
             "xsxk/zzxkyzb_cxZzxkYzbIndex.html?gnmkdm=N253512&layout=default",
         )
-        response = self.sess.get(url_entry, headers=self.headers, timeout=self.timeout)
+        response = self._safe_request('GET', url_entry)
         response.encoding = 'UTF-8'
         doc = pq(response.text)
         
@@ -1134,11 +1077,10 @@ class Client:
 
         # 4. 请求课程列表API
         url_courses_api = urljoin(self.base_url, "xsxk/zzxkyzb_cxZzxkYzbPartDisplay.html?gnmkdm=N253512")
-        api_headers = self.headers.copy()
-        api_headers['Referer'] = url_entry
-        api_headers['X-Requested-With'] = 'XMLHttpRequest'
-
-        kch_res = self.sess.post(url_courses_api, headers=api_headers, data=course_list_payload, timeout=self.timeout)
+        
+        kch_res = self._safe_request('POST', url_courses_api, 
+                                    headers={'Referer': url_entry, 'X-Requested-With': 'XMLHttpRequest'}, 
+                                    data=course_list_payload)
         response_json = kch_res.json()
         if not isinstance(response_json, dict):
             return {"code": 1004, "msg": f"获取课程列表失败，服务器返回了非预期的内容: {response_json}"}
@@ -1187,7 +1129,9 @@ class Client:
                 "xklc": all_hidden_inputs.get("xklc", "1"),
             }
             
-            bkk_res = self.sess.post(url_bkk, headers=api_headers, data=class_list_payload, timeout=self.timeout)
+            bkk_res = self._safe_request('POST', url_bkk, 
+                                        headers={'Referer': url_entry, 'X-Requested-With': 'XMLHttpRequest'}, 
+                                        data=class_list_payload)
             classes_for_course = bkk_res.json()
             if not isinstance(classes_for_course, list): continue
             
@@ -1258,11 +1202,10 @@ class Client:
         
         # 3. 请求选课API
         url_select = urljoin(self.base_url, "xsxk/zzxkyzbjk_xkBcZyZzxkYzb.html?gnmkdm=N253512") # 带'jk'
-        api_headers = self.headers.copy()
-        api_headers['Referer'] = entry_response.url
-        api_headers['X-Requested-With'] = 'XMLHttpRequest'
 
-        req_select = self.sess.post(url_select, headers=api_headers, data=select_payload, timeout=self.timeout)
+        req_select = self._safe_request('POST', url_select, 
+                                       headers={'Referer': entry_response.url, 'X-Requested-With': 'XMLHttpRequest'}, 
+                                       data=select_payload)
         
         try:
             result = req_select.json()
@@ -1293,7 +1236,7 @@ class Client:
             }
             
             url_cancel = urljoin(self.base_url, "xsxk/zzxkyzb_tuikBcZzxkYzb.html")
-            req_cancel = self.sess.post(url_cancel, headers=self.headers, data=cancel_data, timeout=self.timeout)
+            req_cancel = self._safe_request('POST', url_cancel, data=cancel_data)
             
             if req_cancel.text.strip() == '"1"':
                 return {"code": 1000, "msg": "退课成功"}
