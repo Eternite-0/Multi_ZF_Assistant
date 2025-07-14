@@ -33,7 +33,7 @@
         ]
     },
     "test": {
-        "target_count": 1,
+        "target_count": 3,
         "courses": [
             {
                 "course_id": "COURSE_ID_001",
@@ -48,6 +48,20 @@
                 "selected_number": 42,
                 "place": "信息楼201",
                 "time": "1-16周 周二第3,4节"
+            },
+            {
+                "course_id": "COURSE_ID_001",
+                "class_id": "jxb_id_01_b",
+                "do_id": "jxb_id_01_b",
+                "title": "【专业选修】计算机网络",
+                "teacher": "张三(教授)",
+                "credit": 3.0,
+                "kklxdm": "10",
+                "xkkz_id": "xyz-123",
+                "capacity": 60,
+                "selected_number": 39,
+                "place": "信息楼202",
+                "time": "1-16周 周三第5,6节"
             },
             {
                 "course_id": "COURSE_ID_002",
