@@ -35,9 +35,7 @@ def setup_application() -> QApplication:
     app.setApplicationVersion("1.0.0")
     app.setOrganizationName("ZFN Assistant")
     
-    # 启用高DPI支持
-    app.setAttribute(Qt.ApplicationAttribute.AA_EnableHighDpiScaling, True)
-    app.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps, True)
+    # PyQt6中高DPI支持默认启用，无需额外设置
     
     # 设置应用程序图标（如果存在）
     icon_path = os.path.join(os.path.dirname(__file__), "ui", "assets", "icon.ico")
