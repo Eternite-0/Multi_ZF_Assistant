@@ -1,0 +1,120 @@
+{
+    "admin": {
+        "target_count": 2,
+        "courses": [
+            {
+                "course_id": "COURSE_ID_001",
+                "class_id": "jxb_id_01",
+                "do_id": "jxb_id_01",
+                "title": "【专业选修】计算机网络",
+                "teacher": "张三(教授)",
+                "credit": 3.0,
+                "kklxdm": "10",
+                "xkkz_id": "xyz-123",
+                "capacity": 60,
+                "selected_number": 42,
+                "place": "信息楼201",
+                "time": "1-16周 周二第3,4节"
+            },
+            {
+                "course_id": "COURSE_ID_002",
+                "class_id": "jxb_id_02",
+                "do_id": "jxb_id_02",
+                "title": "【专业选修】操作系统",
+                "teacher": "李四(教授)",
+                "credit": 3.0,
+                "kklxdm": "10",
+                "xkkz_id": "xyz-123",
+                "capacity": 40,
+                "selected_number": 22,
+                "place": "信息楼305",
+                "time": "1-16周 周四第1,2节"
+            }
+        ]
+    },
+    "test": {
+        "target_count": 3,
+        "courses": [
+            {
+                "course_id": "COURSE_ID_001",
+                "class_id": "jxb_id_01",
+                "do_id": "jxb_id_01",
+                "title": "【专业选修】计算机网络",
+                "teacher": "张三(教授)",
+                "credit": 3.0,
+                "kklxdm": "10",
+                "xkkz_id": "xyz-123",
+                "capacity": 60,
+                "selected_number": 42,
+                "place": "信息楼201",
+                "time": "1-16周 周二第3,4节"
+            },
+            {
+                "course_id": "COURSE_ID_001",
+                "class_id": "jxb_id_01_b",
+                "do_id": "jxb_id_01_b",
+                "title": "【专业选修】计算机网络",
+                "teacher": "张三(教授)",
+                "credit": 3.0,
+                "kklxdm": "10",
+                "xkkz_id": "xyz-123",
+                "capacity": 60,
+                "selected_number": 39,
+                "place": "信息楼202",
+                "time": "1-16周 周三第5,6节"
+            },
+            {
+                "course_id": "COURSE_ID_002",
+                "class_id": "jxb_id_02",
+                "do_id": "jxb_id_02",
+                "title": "【专业选修】操作系统",
+                "teacher": "李四(教授)",
+                "credit": 3.0,
+                "kklxdm": "10",
+                "xkkz_id": "xyz-123",
+                "capacity": 40,
+                "selected_number": 22,
+                "place": "信息楼305",
+                "time": "1-16周 周四第1,2节"
+            }
+        ]
+    },
+    "202408784230": {
+        "target_count": 1,
+        "courses": [
+            {
+                "course_id": "B1A4C3CA66AB0E25E05315C6A8C0BC72",
+                "class_id": "371D9F5788A7D6B4E0630BC6A8C093DD",
+                "do_id": "242909f448cd19b6d09653eb65573a0ca63cc0fb06331eb4db50639b6b8fef3c190cb6c97bb08f003a4cde98fb75149daa0d89057ffa383216d322f88e0159f7beebf6c151b257f250c88d9d62afc6b7244c82a68e78d77b79e789cec5dda35d4e277b04bd04eea61232c621991867899281a3a598e50647901cb0fa314898f7",
+                "title": "乒乓球3",
+                "teacher": "09160/黄志峰/助教",
+                "credit": 1.0,
+                "kklxdm": "05",
+                "xkkz_id": "3E471167D0DE9EFCE06315C6A8C0317D",
+                "capacity": 42,
+                "selected_number": 0,
+                "place": "明达楼301兵乒球室3",
+                "time": "星期二第5-6节{1-16周}"
+            }
+        ]
+    },
+    "202408324106": {
+        "target_count": 1,
+        "courses": [
+            {
+                "course_id": "B1A1D4FD7D04AAFCE0530BC6A8C0D822",
+                "class_id": "371A7A56C66A75B6E06315C6A8C0CD35",
+                "do_id": "604fd235a07495abcf400e4ab75abeb30d7fe9b71d21e823ac89d1a1083bf1eede46512888ee666ccaf2f5df282fa7df1331c4578704228aaad472ab783e04413c7b4281c24692cab85d5cf7a99d0325f7abd3f0204423a13a91935c2b9809536acfac8dbab92cc3ef0b57547be1760ead1e9ba5c53d792a7a937de46abaf1b7",
+                "title": "足球3",
+                "teacher": "W3510/臧勇/副教授",
+                "credit": 1.0,
+                "kklxdm": "05",
+                "xkkz_id": "3E471167D0DE9EFCE06315C6A8C0317D",
+                "capacity": 42,
+                "selected_number": 42,
+                "place": "湖光足球场1",
+                "time": "星期二第5-6节{1-16周}"
+            }
+        ]
+    }
+}
