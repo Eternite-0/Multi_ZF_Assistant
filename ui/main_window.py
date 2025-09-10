@@ -196,15 +196,14 @@ class ZFN_GUI(QMainWindow):
         self.grab_target_count_input.setValue(1)
         self.grab_target_count_input.setToolTip("设置每个账号需要抢到的课程数量")
         self.fetch_courses_button = QPushButton('获取板块课程')
-        
-
-
+        self.manage_cache_button = QPushButton('📂 管理和加载缓存') # 新增：管理缓存按钮
         
         params_layout.addRow("学年:", self.grab_year_display)
         params_layout.addRow("学期:", self.grab_term_input)
         params_layout.addRow("选课板块:", self.grab_block_input)
         params_layout.addRow("目标抢课数:", self.grab_target_count_input)
         params_layout.addRow(self.fetch_courses_button)
+        params_layout.addRow(self.manage_cache_button) # 新增：添加管理缓存按钮
         top_container_layout.addWidget(params_group, 2)
         grabber_layout.addWidget(top_group)
         
@@ -309,6 +308,7 @@ class ZFN_GUI(QMainWindow):
         grabber_layout.addLayout(bottom_layout)
         
         self.fetch_courses_button.clicked.connect(self.fetch_block_courses)
+        self.manage_cache_button.clicked.connect(self.show_cache_manager) # 新增：连接管理缓存按钮
         self.start_grab_button.clicked.connect(self.start_priority_grabbing)
         self.stop_grab_button.clicked.connect(self.stop_all_grabbing)
         self.save_wishlist_button.clicked.connect(self.save_wishlist_for_selected)
@@ -412,7 +412,7 @@ class ZFN_GUI(QMainWindow):
         self.login_all_button.setText("登录中...")
         self.main_result_display.setText("正在启动批量登录...\n")
         
-        timeout = getattr(config, 'load_settings', lambda: 10)() 
+        timeout = getattr(config, 'load_settings', lambda: 10)()  
         
         login_worker = BatchLoginWorker(self.accounts, timeout)
         login_worker.account_status_update.connect(self.handle_account_login_status)
@@ -490,7 +490,7 @@ class ZFN_GUI(QMainWindow):
             self.main_result_display.append(f"✅ 学号 [{sid}] 获取 [{action}] 数据成功。")
             if action == 'get_gpa':
                 gpa_data = result.get('data', '无GPA数据')
-                self.main_result_display.append(f"   > GPA 结果: {gpa_data}")
+                self.main_result_display.append(f"    > GPA 结果: {gpa_data}")
         else:
             msg = result.get('msg', '未知错误') if isinstance(result, dict) else str(result)
             self.main_result_display.append(f"❌ 学号 [{sid}] 获取 [{action}] 数据失败: {msg}")
@@ -638,11 +638,10 @@ class ZFN_GUI(QMainWindow):
         if not selected_items:
             return QMessageBox.warning(self, "提示", "请选择一个用于获取课程列表的账户。")
         
-        # 询问是否保存缓存
         reply = QMessageBox.question(self, "保存缓存", 
-                                   "是否要将获取的课程信息保存到本地缓存？\n这样可以方便后续查询。",
-                                   QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                   QMessageBox.StandardButton.No)
+                                     "是否要将获取的课程信息保存到本地缓存？\n这样可以方便后续查询。",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                     QMessageBox.StandardButton.No)
         
         self.save_cache_for_this_fetch = reply == QMessageBox.StandardButton.Yes
         
@@ -668,7 +667,7 @@ class ZFN_GUI(QMainWindow):
             self.grab_log_display.append(f"获取课程失败: {result.get('msg', '未知错误')}")
             self.update_start_grab_button_state()
             return
-        
+            
         data = result.get('data', {})
         courses = data.get('courses', [])
         if not courses:
@@ -678,7 +677,6 @@ class ZFN_GUI(QMainWindow):
             
         self.grab_log_display.append(f"成功获取 {len(courses)} 门课程，请在下方表格中选择志愿课程。")
         
-        # 如果用户选择了保存缓存，保存课程数据到本地
         if hasattr(self, 'save_cache_for_this_fetch') and self.save_cache_for_this_fetch:
             self.save_courses_cache(courses, data)
         
@@ -703,21 +701,16 @@ class ZFN_GUI(QMainWindow):
         if not selected_account_items:
             return QMessageBox.warning(self, "提示", "请选择至少一个要用于抢课的账户。")
 
-        # 检查是否启用了定时抢课
         if self.scheduled_enabled:
-            # 验证设定的时间
             is_valid, start_immediately = self.validate_scheduled_time()
             if not is_valid:
-                return  # 时间无效，用户选择取消
+                return
             
             if start_immediately:
-                # 立即开始抢课
                 self.execute_priority_grabbing()
             else:
-                # 等待到设定时间
                 self.start_scheduled_waiting()
         else:
-            # 未启用定时，直接开始抢课
             self.execute_priority_grabbing()
     
     def start_scheduled_waiting(self):
@@ -729,10 +722,8 @@ class ZFN_GUI(QMainWindow):
         self.start_grab_button.setEnabled(False)
         self.stop_grab_button.setEnabled(True)
         
-        # 启动定时器，每秒检查一次
         self.timer_for_scheduled_grab.start(1000)
         
-        # 立即检查一次时间
         self.check_scheduled_time()
     
     def execute_priority_grabbing(self):
@@ -750,7 +741,7 @@ class ZFN_GUI(QMainWindow):
         for sid in selected_sids:
             api_client = self.logged_in_clients.get(sid)
             if not api_client:
-                self.log_to_grabber(f"❌ 错误：未找到学号 {sid} 的客户端实例，跳过。")
+                self.log_to_grabber(f"❌ 错误：未找到学号 {sid} 的登录实例，跳过。")
                 continue
             
             if sid in self.priority_grabbers and self.priority_grabbers[sid].isRunning():
@@ -759,8 +750,8 @@ class ZFN_GUI(QMainWindow):
 
             wishlist_data = self.wishlists.get(sid)
             if not wishlist_data:
-                 self.log_to_grabber(f"❌ 学号 [{sid}] 没有找到志愿列表，跳过。请先保存志愿。")
-                 continue
+                self.log_to_grabber(f"❌ 学号 [{sid}] 没有找到志愿列表，跳过。请先保存志愿。")
+                continue
             
             target_count = 1
             prioritized_courses = []
@@ -786,11 +777,9 @@ class ZFN_GUI(QMainWindow):
 
     def stop_all_grabbing(self):
         """停止所有抢课任务和定时等待"""
-        # 停止定时等待
         if self.waiting_for_scheduled_grab:
             self.stop_scheduled_waiting()
         
-        # 停止所有抢课任务
         if self.priority_grabbers:
             self.grab_log_display.append("\n--- 正在发送停止所有抢课任务的信号 ---")
             for grabber in self.priority_grabbers.values():
@@ -801,7 +790,6 @@ class ZFN_GUI(QMainWindow):
         self.stop_grab_button.setEnabled(False)
 
     def update_grab_log(self, sid, message):
-        # 为特定错误添加更详细的说明
         if "JAS-04" in message or "校验不通过" in message:
             enhanced_message = f"{message}\n    💡 提示: 这通常是教务系统的反爬虫机制，程序已自动重试并刷新会话"
             self.grab_log_display.append(f"[{sid}] {enhanced_message}")
@@ -819,7 +807,6 @@ class ZFN_GUI(QMainWindow):
     def load_all_wishlists(self):
         self.wishlists = load_wishlists()
         self.log_to_grabber(f"已加载 {len(self.wishlists)} 个账户的已存志愿。")
-        # 加载志愿后更新按钮状态
         self.update_start_grab_button_state()
 
     def save_wishlist_for_selected(self):
@@ -843,13 +830,12 @@ class ZFN_GUI(QMainWindow):
         self.log_to_grabber(f"已为账户 {', '.join(sids_to_save)} 保存了 {len(self.current_wishlist_courses)} 门志愿(目标 {target_count} 门)。")
         QMessageBox.information(self, "成功", f"已为账户 {', '.join(sids_to_save)} 成功保存志愿列表！")
         
-        # 保存志愿后更新按钮状态
         self.update_start_grab_button_state()
 
     def load_wishlist_to_ui(self):
         self.courses_table.clearSelection()
         self.grab_target_count_input.setValue(1)
-        self.update_wishlist_display([]) # 清空显示
+        self.update_wishlist_display([])
 
         selected_account_items = self.grabber_account_list.selectedItems()
         if not selected_account_items:
@@ -888,7 +874,6 @@ class ZFN_GUI(QMainWindow):
         loaded_count = 0
         total_wishlist_count = len(wishlist_courses)
 
-        # 阻止信号触发，避免循环更新
         self.courses_table.blockSignals(True)
         self.courses_table.clearSelection()
         for row in range(self.courses_table.rowCount()):
@@ -912,7 +897,6 @@ class ZFN_GUI(QMainWindow):
             f"目标抢课数: {target_count}。"
         )
         
-        # 更新按钮状态
         self.update_start_grab_button_state()
     
     def update_wishlist_display(self, courses):
@@ -920,7 +904,6 @@ class ZFN_GUI(QMainWindow):
         self.current_wishlist_courses = courses
         self.wishlist_display.clear()
         for i, course in enumerate(courses):
-            # 正确的显示格式，包含时间
             display_text = f"{i+1}. {course.get('title', 'N/A')} - {course.get('teacher', 'N/A')} - {course.get('time', 'N/A')}"
             self.wishlist_display.addItem(QListWidgetItem(display_text))
 
@@ -928,20 +911,15 @@ class ZFN_GUI(QMainWindow):
         """当用户在主课程表中选择变化时，更新志愿列表（已修正）"""
         selected_rows_indices = self.courses_table.selectionModel().selectedRows()
         
-        # 保持现有志愿的顺序，只增删
         current_wishlist_keys = set((c.get('do_id') or c.get('class_id')) for c in self.current_wishlist_courses)
         
         selected_courses_in_table = []
         for index in selected_rows_indices:
             row = index.row()
-            # 修正：使用更可靠的方式从表格行找到唯一的课程对象
-            # 避免仅通过文本匹配，因为可能存在同名同教师但不同时间的课程
             title_text = self.courses_table.item(row, 1).text()
             teacher_text = self.courses_table.item(row, 2).text()
-            # 修正：从正确的第 3 列获取时间
             time_text = self.courses_table.item(row, 3).text() 
             
-            # 修正：使用更可靠的匹配逻辑
             matching_course = next((c for c in self.current_selectable_courses.values() 
                                     if c.get('title') == title_text 
                                     and c.get('teacher') == teacher_text 
@@ -951,10 +929,8 @@ class ZFN_GUI(QMainWindow):
 
         selected_keys_in_table = set((c.get('do_id') or c.get('class_id')) for c in selected_courses_in_table)
 
-        # 移除取消勾选的
         new_wishlist = [c for c in self.current_wishlist_courses if (c.get('do_id') or c.get('class_id')) in selected_keys_in_table]
         
-        # 添加新勾选的
         for course in selected_courses_in_table:
             key = course.get('do_id') or course.get('class_id')
             if key not in current_wishlist_keys:
@@ -969,10 +945,9 @@ class ZFN_GUI(QMainWindow):
             self.wishlist_display.insertItem(current_row - 1, item)
             self.wishlist_display.setCurrentRow(current_row - 1)
             
-            # 同步数据源
             course = self.current_wishlist_courses.pop(current_row)
             self.current_wishlist_courses.insert(current_row - 1, course)
-            self.update_wishlist_display(self.current_wishlist_courses) # 重新编号
+            self.update_wishlist_display(self.current_wishlist_courses)
 
     def move_wishlist_item_down(self):
         current_row = self.wishlist_display.currentRow()
@@ -981,10 +956,9 @@ class ZFN_GUI(QMainWindow):
             self.wishlist_display.insertItem(current_row + 1, item)
             self.wishlist_display.setCurrentRow(current_row + 1)
             
-            # 同步数据源
             course = self.current_wishlist_courses.pop(current_row)
             self.current_wishlist_courses.insert(current_row + 1, course)
-            self.update_wishlist_display(self.current_wishlist_courses) # 重新编号
+            self.update_wishlist_display(self.current_wishlist_courses)
 
     def wishlist_order_changed(self):
         """拖拽结束后，根据显示顺序重建数据源（已修正解析逻辑）"""
@@ -996,13 +970,9 @@ class ZFN_GUI(QMainWindow):
         for text in all_display_texts:
             found_course = None
             try:
-                # 修正：新的解析逻辑，以应对 "标题 - 老师 - 时间" 的格式
-                # 从右边分割两次，可以稳定地分离出最后的时间和老师
                 parts = text.split('. ', 1)[1].rsplit(' - ', 2)
                 title, teacher, time = parts[0], parts[1], parts[2]
                 
-                # 在旧的志愿列表中找到对应的课程对象
-                # 为了防止完全相同的课程（标题、老师、时间都一样），我们从池中移除已匹配的
                 for i, c in enumerate(temp_course_pool):
                     if c.get('title') == title and c.get('teacher') == teacher and c.get('time') == time:
                         found_course = temp_course_pool.pop(i)
@@ -1014,7 +984,6 @@ class ZFN_GUI(QMainWindow):
                 self.log_to_grabber(f"警告：无法解析志愿项 '{text}'，顺序可能不正确。")
                 continue
         
-        # 只有在解析成功且数量匹配时才更新，防止出错
         if len(new_ordered_courses) == len(self.current_wishlist_courses):
             self.update_wishlist_display(new_ordered_courses)
         else:
@@ -1027,11 +996,9 @@ class ZFN_GUI(QMainWindow):
     def save_courses_cache(self, courses, metadata=None):
         """保存课程数据到本地缓存"""
         try:
-            # 创建缓存目录
             cache_dir = os.path.join(os.getcwd(), 'cache')
             os.makedirs(cache_dir, exist_ok=True)
             
-            # 生成缓存文件名
             year = self.grab_year_display.text()
             term = self.grab_term_input.currentText()
             block = self.grab_block_input.currentText()
@@ -1040,7 +1007,6 @@ class ZFN_GUI(QMainWindow):
             filename = f"courses_{year}_{term}_{block}_{timestamp}.json"
             filepath = os.path.join(cache_dir, filename)
             
-            # 准备缓存数据
             cache_data = {
                 'timestamp': timestamp,
                 'year': year,
@@ -1051,13 +1017,11 @@ class ZFN_GUI(QMainWindow):
                 'courses': courses
             }
             
-            # 保存到JSON文件
             with open(filepath, 'w', encoding='utf-8') as f:
                 json.dump(cache_data, f, ensure_ascii=False, indent=2)
             
             self.grab_log_display.append(f"✅ 课程缓存已保存: {filename}")
             
-            # 同时保存最新的缓存（覆盖式）
             latest_filename = f"courses_{year}_{term}_{block}_latest.json"
             latest_filepath = os.path.join(cache_dir, latest_filename)
             with open(latest_filepath, 'w', encoding='utf-8') as f:
@@ -1066,205 +1030,166 @@ class ZFN_GUI(QMainWindow):
         except Exception as e:
             self.grab_log_display.append(f"❌ 保存课程缓存失败: {str(e)}")
 
-    def show_cache_manager(self):
-        """显示缓存管理器对话框"""
-        try:
-            cache_dir = os.path.join(os.getcwd(), 'cache')
-            if not os.path.exists(cache_dir):
-                QMessageBox.information(self, "提示", "还没有任何缓存文件。")
-                return
+    def display_cached_courses(self, courses, cache_data):
+        """显示缓存的课程到表格中"""
+        self.courses_table.setRowCount(0)
+        self.current_selectable_courses.clear()
+        
+        for course in courses:
+            course_key = course.get('do_id') or course.get('class_id')
+            if not course_key:
+                continue
             
-            # 获取所有缓存文件
-            cache_files = []
-            for filename in os.listdir(cache_dir):
-                if filename.startswith('courses_') and filename.endswith('.json'):
-                    filepath = os.path.join(cache_dir, filename)
-                    try:
-                        with open(filepath, 'r', encoding='utf-8') as f:
-                            cache_data = json.load(f)
-                        
-                        file_info = {
-                            'filename': filename,
-                            'filepath': filepath,
-                            'timestamp': cache_data.get('timestamp', '未知'),
-                            'year': cache_data.get('year', '未知'),
-                            'term': cache_data.get('term', '未知'),
-                            'block': cache_data.get('block', '未知'),
-                            'total_courses': cache_data.get('total_courses', 0),
-                            'size': os.path.getsize(filepath)
-                        }
-                        cache_files.append(file_info)
-                    except:
-                        continue
+            row_pos = self.courses_table.rowCount()
+            self.courses_table.insertRow(row_pos)
+            self.courses_table.setItem(row_pos, 0, QTableWidgetItem(course.get('course_id', '')))
+            self.courses_table.setItem(row_pos, 1, QTableWidgetItem(course.get('title', '')))
+            self.courses_table.setItem(row_pos, 2, QTableWidgetItem(course.get('teacher', '')))
+            self.courses_table.setItem(row_pos, 3, QTableWidgetItem(course.get('time', '')))
+            self.courses_table.setItem(row_pos, 4, QTableWidgetItem(f"{course.get('selected_number', 'N/A')}/{course.get('capacity', 'N/A')}"))
             
-            if not cache_files:
-                QMessageBox.information(self, "提示", "没有找到有效的缓存文件。")
-                return
-            
-            # 创建缓存管理对话框
-            dialog = QDialog(self)
-            dialog.setWindowTitle("课程缓存管理器")
-            dialog.setModal(True)
-            dialog.resize(800, 500)
-            
-            layout = QVBoxLayout(dialog)
-            
-            # 添加说明
-            info_label = QLabel("以下是本地保存的课程缓存文件，您可以查看详情或删除不需要的文件：")
-            layout.addWidget(info_label)
-            
-            # 创建缓存文件列表
-            cache_table = QTableWidget()
-            cache_table.setColumnCount(6)
-            cache_table.setHorizontalHeaderLabels(['文件名', '学年', '学期', '板块', '课程数', '大小'])
-            cache_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-            cache_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-            
-            # 填充数据
-            cache_table.setRowCount(len(cache_files))
-            for i, file_info in enumerate(cache_files):
-                cache_table.setItem(i, 0, QTableWidgetItem(file_info['filename']))
-                cache_table.setItem(i, 1, QTableWidgetItem(str(file_info['year'])))
-                cache_table.setItem(i, 2, QTableWidgetItem(str(file_info['term'])))
-                cache_table.setItem(i, 3, QTableWidgetItem(str(file_info['block'])))
-                cache_table.setItem(i, 4, QTableWidgetItem(str(file_info['total_courses'])))
-                cache_table.setItem(i, 5, QTableWidgetItem(f"{file_info['size']/1024:.1f} KB"))
-            
-            layout.addWidget(cache_table)
-            
-            # 添加按钮
-            button_layout = QHBoxLayout()
-            
-            view_button = QPushButton("查看详情")
-            delete_button = QPushButton("删除选中")
-            open_folder_button = QPushButton("打开缓存文件夹")
-            close_button = QPushButton("关闭")
-            
-            def view_cache_details():
-                selected_rows = cache_table.selectionModel().selectedRows()
-                if not selected_rows:
-                    QMessageBox.warning(dialog, "提示", "请选择一个缓存文件。")
-                    return
-                
-                row = selected_rows[0].row()
-                file_info = cache_files[row]
-                
-                try:
-                    with open(file_info['filepath'], 'r', encoding='utf-8') as f:
-                        cache_data = json.load(f)
-                    
-                    # 显示详情对话框
-                    details_dialog = QDialog(dialog)
-                    details_dialog.setWindowTitle(f"缓存详情 - {file_info['filename']}")
-                    details_dialog.setModal(True)
-                    details_dialog.resize(600, 400)
-                    
-                    details_layout = QVBoxLayout(details_dialog)
-                    
-                    # 基本信息
-                    info_text = f"""
-文件名: {file_info['filename']}
-学年: {cache_data.get('year', '未知')}
-学期: {cache_data.get('term', '未知')}
-板块: {cache_data.get('block', '未知')}
-创建时间: {cache_data.get('timestamp', '未知')}
-课程总数: {cache_data.get('total_courses', 0)}
-文件大小: {file_info['size']/1024:.1f} KB
-                    """
-                    
-                    info_label = QLabel(info_text)
-                    details_layout.addWidget(info_label)
-                    
-                    # 课程列表
-                    courses_label = QLabel("课程列表:")
-                    details_layout.addWidget(courses_label)
-                    
-                    courses_text = QTextEdit()
-                    courses_text.setReadOnly(True)
-                    
-                    courses = cache_data.get('courses', [])
-                    courses_content = ""
-                    for i, course in enumerate(courses[:50], 1):  # 只显示前50门课程
-                        courses_content += f"{i}. {course.get('title', '未知')} - {course.get('teacher', '未知')} - {course.get('time', '未知')}\n"
-                    
-                    if len(courses) > 50:
-                        courses_content += f"\n... 还有 {len(courses) - 50} 门课程"
-                    
-                    courses_text.setPlainText(courses_content)
-                    details_layout.addWidget(courses_text)
-                    
-                    # 关闭按钮
-                    close_details_button = QPushButton("关闭")
-                    close_details_button.clicked.connect(details_dialog.close)
-                    details_layout.addWidget(close_details_button)
-                    
-                    details_dialog.exec()
-                    
-                except Exception as e:
-                    QMessageBox.critical(dialog, "错误", f"读取缓存文件失败: {str(e)}")
-            
-            def delete_selected_cache():
-                selected_rows = cache_table.selectionModel().selectedRows()
-                if not selected_rows:
-                    QMessageBox.warning(dialog, "提示", "请选择要删除的缓存文件。")
-                    return
-                
-                reply = QMessageBox.question(dialog, "确认删除", 
-                                           f"确定要删除选中的 {len(selected_rows)} 个缓存文件吗？",
-                                           QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-                
-                if reply == QMessageBox.StandardButton.Yes:
-                    for index in selected_rows:
-                        row = index.row()
-                        file_info = cache_files[row]
-                        try:
-                            os.remove(file_info['filepath'])
-                        except Exception as e:
-                            QMessageBox.warning(dialog, "警告", f"删除文件 {file_info['filename']} 失败: {str(e)}")
-                    
-                    QMessageBox.information(dialog, "完成", "选中的缓存文件已删除。")
-                    dialog.close()
-            
-            def open_cache_folder():
-                cache_dir = os.path.join(os.getcwd(), 'cache')
-                if os.path.exists(cache_dir):
-                    os.startfile(cache_dir)  # Windows
-                else:
-                    QMessageBox.warning(dialog, "提示", "缓存文件夹不存在。")
-            
-            view_button.clicked.connect(view_cache_details)
-            delete_button.clicked.connect(delete_selected_cache)
-            open_folder_button.clicked.connect(open_cache_folder)
-            close_button.clicked.connect(dialog.close)
-            
-            button_layout.addWidget(view_button)
-            button_layout.addWidget(delete_button)
-            button_layout.addWidget(open_folder_button)
-            button_layout.addStretch()
-            button_layout.addWidget(close_button)
-            
-            layout.addLayout(button_layout)
-            
-            dialog.exec()
-            
-        except Exception as e:
-            QMessageBox.critical(self, "错误", f"打开缓存管理器失败: {str(e)}")
+            self.current_selectable_courses[course_key] = course
+        
+        self.update_start_grab_button_state()
 
+    def show_cache_manager(self):
+        """显示缓存管理器对话框，并处理加载和删除逻辑"""
+        cache_dir = os.path.join(os.getcwd(), 'cache')
+        if not os.path.exists(cache_dir) or not os.listdir(cache_dir):
+            QMessageBox.information(self, "提示", "还没有任何缓存文件。")
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("课程缓存管理器")
+        dialog.setModal(True)
+        dialog.resize(800, 500)
+        
+        layout = QVBoxLayout(dialog)
+        
+        info_label = QLabel("以下是本地保存的课程缓存文件，您可以选择一个进行加载或删除：")
+        layout.addWidget(info_label)
+        
+        cache_table = QTableWidget()
+        cache_table.setColumnCount(6)
+        cache_table.setHorizontalHeaderLabels(['文件名', '学年', '学期', '板块', '课程数', '大小'])
+        cache_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        cache_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        cache_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+
+        cache_files_info = []
+        for filename in os.listdir(cache_dir):
+            if filename.startswith('courses_') and filename.endswith('.json'):
+                filepath = os.path.join(cache_dir, filename)
+                try:
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        cache_data = json.load(f)
+                    cache_files_info.append({
+                        'filename': filename,
+                        'filepath': filepath,
+                        'year': cache_data.get('year', '未知'),
+                        'term': cache_data.get('term', '未知'),
+                        'block': cache_data.get('block', '未知'),
+                        'total_courses': cache_data.get('total_courses', 0),
+                        'size': os.path.getsize(filepath)
+                    })
+                except:
+                    continue
+
+        cache_table.setRowCount(len(cache_files_info))
+        for i, file_info in enumerate(cache_files_info):
+            cache_table.setItem(i, 0, QTableWidgetItem(file_info['filename']))
+            cache_table.setItem(i, 1, QTableWidgetItem(str(file_info['year'])))
+            cache_table.setItem(i, 2, QTableWidgetItem(str(file_info['term'])))
+            cache_table.setItem(i, 3, QTableWidgetItem(str(file_info['block'])))
+            cache_table.setItem(i, 4, QTableWidgetItem(str(file_info['total_courses'])))
+            cache_table.setItem(i, 5, QTableWidgetItem(f"{file_info['size']/1024:.1f} KB"))
+        
+        layout.addWidget(cache_table)
+        
+        button_layout = QHBoxLayout()
+        load_button = QPushButton("加载选中缓存")
+        delete_button = QPushButton("删除选中")
+        open_folder_button = QPushButton("打开缓存文件夹")
+        close_button = QPushButton("关闭")
+        
+        def load_selected_cache():
+            selected_rows = cache_table.selectionModel().selectedRows()
+            if not selected_rows:
+                QMessageBox.warning(dialog, "提示", "请选择一个缓存文件。")
+                return
+            row = selected_rows[0].row()
+            file_info = cache_files_info[row]
+            
+            try:
+                with open(file_info['filepath'], 'r', encoding='utf-8') as f:
+                    cache_data = json.load(f)
+                courses = cache_data.get('courses', [])
+                if courses:
+                    self.display_cached_courses(courses, cache_data)
+                    self.log_to_grabber(f"✅ 成功加载缓存: {file_info['filename']}")
+                    dialog.close()
+                else:
+                    QMessageBox.warning(dialog, "警告", "缓存文件没有课程数据。")
+            except Exception as e:
+                QMessageBox.critical(dialog, "错误", f"加载缓存失败: {str(e)}")
+        
+        def delete_selected_cache():
+            selected_rows = cache_table.selectionModel().selectedRows()
+            if not selected_rows:
+                QMessageBox.warning(dialog, "提示", "请选择要删除的缓存文件。")
+                return
+            
+            reply = QMessageBox.question(dialog, "确认删除", f"确定要删除选中的 {len(selected_rows)} 个缓存文件吗？",
+                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            
+            if reply == QMessageBox.StandardButton.Yes:
+                for index in sorted(selected_rows, key=lambda i: i.row(), reverse=True):
+                    row = index.row()
+                    file_info = cache_files_info[row]
+                    try:
+                        os.remove(file_info['filepath'])
+                        cache_table.removeRow(row)
+                        self.log_to_grabber(f"✅ 已删除缓存文件: {file_info['filename']}")
+                    except Exception as e:
+                        QMessageBox.warning(dialog, "警告", f"删除文件 {file_info['filename']} 失败: {str(e)}")
+        
+        def open_cache_folder():
+            if os.path.exists(cache_dir):
+                if os.name == 'nt':
+                    os.startfile(cache_dir)
+                elif os.name == 'posix':
+                    import subprocess
+                    subprocess.Popen(['xdg-open', cache_dir])
+            else:
+                QMessageBox.warning(dialog, "提示", "缓存文件夹不存在。")
+                
+        load_button.clicked.connect(load_selected_cache)
+        delete_button.clicked.connect(delete_selected_cache)
+        open_folder_button.clicked.connect(open_cache_folder)
+        close_button.clicked.connect(dialog.close)
+        
+        button_layout.addWidget(load_button)
+        button_layout.addWidget(delete_button)
+        button_layout.addWidget(open_folder_button)
+        button_layout.addStretch()
+        button_layout.addWidget(close_button)
+        
+        layout.addLayout(button_layout)
+        
+        dialog.exec()
+        
     def update_start_grab_button_state(self):
         """更新开始志愿抢课按钮的状态 - 只要有志愿表就可以启用"""
-        # 检查是否有选中的账户
         selected_account_items = self.grabber_account_list.selectedItems()
         if not selected_account_items:
             self.start_grab_button.setEnabled(False)
             return
         
-        # 检查选中的账户是否有志愿表
         has_wishlist = False
         for item in selected_account_items:
             sid = item.text()
             wishlist_data = self.wishlists.get(sid)
             if wishlist_data:
-                # 检查志愿表是否有内容
                 if isinstance(wishlist_data, dict):
                     courses = wishlist_data.get("courses", [])
                     if courses:
@@ -1274,10 +1199,7 @@ class ZFN_GUI(QMainWindow):
                     has_wishlist = True
                     break
         
-        # 只要有志愿表就启用按钮，不再依赖课程板块数据
         self.start_grab_button.setEnabled(has_wishlist)
-    
-    # ==== 定时抢课相关方法 ====
     
     def update_current_time(self):
         """更新当前时间显示"""
@@ -1291,7 +1213,6 @@ class ZFN_GUI(QMainWindow):
             self.log_to_grabber("✅ 已启用定时抢课功能")
         else:
             self.log_to_grabber("❌ 已禁用定时抢课功能")
-            # 如果正在等待定时，停止等待
             if self.waiting_for_scheduled_grab:
                 self.stop_scheduled_waiting()
     
@@ -1303,18 +1224,14 @@ class ZFN_GUI(QMainWindow):
         current_time = QDateTime.currentDateTime()
         scheduled_time = self.scheduled_datetime.dateTime()
         
-        # 检查是否已到达或超过设定时间
         if current_time >= scheduled_time:
             self.log_to_grabber("🚀 到达设定时间，开始执行抢课...")
             self.timer_for_scheduled_grab.stop()
             self.waiting_for_scheduled_grab = False
             self.start_grab_button.setText("🚀 开始志愿抢课")
             self.start_grab_button.setEnabled(True)
-            
-            # 执行实际的抢课逻辑
             self.execute_priority_grabbing()
         else:
-            # 更新剩余时间显示
             remaining_seconds = current_time.secsTo(scheduled_time)
             hours = remaining_seconds // 3600
             minutes = (remaining_seconds % 3600) // 60
@@ -1337,7 +1254,6 @@ class ZFN_GUI(QMainWindow):
         scheduled_time = self.scheduled_datetime.dateTime()
         
         if scheduled_time <= current_time:
-            # 时间已过，询问用户是否立即开始或修改时间
             reply = QMessageBox.question(
                 self, 
                 "时间设置", 
@@ -1351,9 +1267,9 @@ class ZFN_GUI(QMainWindow):
             
             if reply == QMessageBox.StandardButton.Yes:
                 self.log_to_grabber("⚡ 用户选择立即开始抢课")
-                return True, True  # 验证通过，立即开始
+                return True, True
             else:
                 self.log_to_grabber("⏰ 用户选择修改时间，请重新设置")
-                return False, False  # 验证失败，不开始
+                return False, False
         
-        return True, False  # 验证通过，按时间等待
+        return True, False
