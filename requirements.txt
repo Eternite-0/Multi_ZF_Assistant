@@ -3,3 +3,4 @@ requests==2.27.1
 rsa==4.8
 PyQt6
 openpyxl>=3.1
+cryptography
