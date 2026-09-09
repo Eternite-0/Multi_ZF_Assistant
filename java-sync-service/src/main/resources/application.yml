@@ -1,0 +1,9 @@
+server:
+  port: ${PORT:8080}
+spring:
+  application:
+    name: jw-sync-service
+  jackson:
+    default-property-inclusion: non_null
+jw:
+  session-ttl-minutes: ${JW_SESSION_TTL_MINUTES:20}

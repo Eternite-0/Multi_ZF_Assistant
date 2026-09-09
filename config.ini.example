@@ -1,0 +1,43 @@
+[Settings]
+# 请求超时时间（秒）
+timeout = 10
+
+# 日志级别 (DEBUG, INFO, WARNING, ERROR)
+log_level = INFO
+
+# 界面主题 (light, dark, auto)
+theme = auto
+
+# 自动保存登录状态
+auto_save_login = true
+
+# 最大重试次数
+max_retries = 3
+
+[UI]
+# 窗口大小
+window_width = 1200
+window_height = 800
+
+# 字体大小
+font_size = 12
+
+# 语言设置
+language = zh_CN
+
+[Network]
+# 代理设置（可选）
+# proxy_host = 
+# proxy_port = 
+# proxy_username = 
+# proxy_password = 
+
+# 用户代理
+user_agent = Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
+
+[Security]
+# 是否启用SSL验证
+verify_ssl = true
+
+# 会话超时时间（分钟）
+session_timeout = 30
